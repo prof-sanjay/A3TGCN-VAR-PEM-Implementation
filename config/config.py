@@ -6,6 +6,39 @@ IMPLEMENTATION_DIR = Path(__file__).resolve().parent.parent
 
 GBA_DIR = IMPLEMENTATION_DIR / "datasets" / "LargeST GBA"
 
+GRAPH_DIR = IMPLEMENTATION_DIR / "outputs" / "graphs"
+
+
+# ============================================================
+# Selected component hyperparameters (validation only, 2026-10-08)
+# ============================================================
+
+# Topology-aware VAR (E1, E2): grid lag {1,2,3} x alpha
+# {1e-5, 1e4, 1e6, 1e8}; best validation one-step RMSE 26.45.
+VAR_LAG = 3
+VAR_ALPHA = 1e6
+VAR_RUN = f"lag{VAR_LAG}_alpha{VAR_ALPHA:g}"
+
+# Local PEM (E2) on the VAR training residuals, uniform prior.
+# Stage B (lr 0.001 + clip 5, 3 epochs): medium nu0/nu1 = 1e-4/2e-3
+# best validation RMSE 48.2 (dense 63.9). Update if Stage B changes.
+PEM_NU0 = 1e-4
+PEM_NU1 = 2e-3
+PEM_TAU = 0.01
+PEM_THRESHOLD = 0.5
+PEM_PRIOR_INCLUSION = 0.5
+PEM_OPTIMIZER = "L-BFGS-B"
+PEM_RUN = (
+    f"{VAR_RUN}__nu0_{PEM_NU0:g}_nu1_{PEM_NU1:g}_tau_{PEM_TAU:g}"
+    f"_thr_{PEM_THRESHOLD:g}_eta_{PEM_PRIOR_INCLUSION:g}_{PEM_OPTIMIZER}"
+)
+
+# Final graph artifact per experiment (built by build_graph.py).
+FINAL_GRAPHS = {
+    "E1": f"E1__{VAR_RUN}.npz",
+    "E2": f"E2__{PEM_RUN}.npz",
+}
+
 
 @dataclass
 class ExperimentConfig:
@@ -23,7 +56,8 @@ class ExperimentConfig:
 
     graph_path:
         .npz graph artifact built offline from the TRAINING split
-        only. Required for E1 and E2, must be None for E0.
+        only. Must be None for E0; for E1 / E2 it defaults to the
+        final graph of the selected VAR / PEM (FINAL_GRAPHS).
     """
 
     # Ablation switch
@@ -39,13 +73,19 @@ class ExperimentConfig:
     pre_len: int = 1
 
     # Training
-    learning_rate: float = 0.005
+    # Chosen on E0 validation (stability check, 2026-10-08): lr 0.005
+    # (original code) gave 2-6x validation jumps on 2,056 sensors;
+    # lr 0.001 + clip 5 trained smoothly (val RMSE 33.9 after 3 epochs).
+    learning_rate: float = 0.001
     training_epoch: int = 20
     batch_size: int = 8
 
     # Chronological split (test = remainder = 10%)
     train_rate: float = 0.8
     val_rate: float = 0.1
+
+    # Gradient clipping by global norm (None = original update)
+    grad_clip_norm: float | None = 5.0
 
     # Regularization
     lambda_loss: float = 0.0015
@@ -89,8 +129,13 @@ class ExperimentConfig:
             )
 
         if self.experiment in ("E1", "E2") and self.graph_path is None:
-            raise ValueError(
-                f"{self.experiment} requires graph_path."
+
+            # Default: the final graph of the selected VAR / PEM.
+            self.graph_path = str(GRAPH_DIR / FINAL_GRAPHS[self.experiment])
+
+        if self.graph_path is not None and not Path(self.graph_path).exists():
+            raise FileNotFoundError(
+                f"Graph artifact not found: {self.graph_path}"
             )
 
         if self.sensor_filter not in ("duplicates", "none"):

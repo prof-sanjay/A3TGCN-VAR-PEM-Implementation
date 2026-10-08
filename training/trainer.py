@@ -19,9 +19,17 @@ class A3TGCNTrainer:
         loss,
         learning_rate,
         optimizer="adam",
+        clip_norm=None,
     ):
+        """
+        clip_norm:
+            None (default) keeps the original update. A positive value
+            clips the gradients by their global norm before the Adam
+            step (training stability on large graphs).
+        """
         self.loss = loss
         self.learning_rate = learning_rate
+        self.clip_norm = clip_norm
 
         self.learning_rate_ph = tf.placeholder(
             tf.float32,
@@ -38,7 +46,24 @@ class A3TGCNTrainer:
                 f"Unsupported optimizer: {optimizer}"
             )
 
-        self.train_op = self.optimizer.minimize(self.loss)
+        if clip_norm is None:
+
+            self.train_op = self.optimizer.minimize(self.loss)
+
+        else:
+
+            gradients, variables = zip(
+                *self.optimizer.compute_gradients(self.loss)
+            )
+
+            gradients, self.gradient_norm = tf.clip_by_global_norm(
+                gradients,
+                clip_norm,
+            )
+
+            self.train_op = self.optimizer.apply_gradients(
+                zip(gradients, variables)
+            )
 
         self.session = tf.Session()
 

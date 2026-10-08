@@ -453,6 +453,21 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=None,
+        help="Override learning_rate (stability checks; must then be "
+             "identical for E0 / E1 / E2).",
+    )
+
+    parser.add_argument(
+        "--clip-norm",
+        type=float,
+        default=None,
+        help="Gradient clipping by global norm (default: none).",
+    )
+
+    parser.add_argument(
         "--selection-only",
         action="store_true",
         help="Model selection run: train + validate only, the test "
@@ -479,6 +494,12 @@ def main():
 
     if args.epochs is not None:
         config.training_epoch = args.epochs
+
+    if args.learning_rate is not None:
+        config.learning_rate = args.learning_rate
+
+    if args.clip_norm is not None:
+        config.grad_clip_norm = args.clip_norm
 
     config.validate()
 
@@ -782,6 +803,7 @@ def main():
         loss=model.loss,
         learning_rate=config.learning_rate,
         optimizer="adam",
+        clip_norm=config.grad_clip_norm,
     )
 
     trainer.initialize()

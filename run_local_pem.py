@@ -48,7 +48,15 @@ from pathlib import Path
 
 import numpy as np
 
-from config.config import ExperimentConfig
+from config.config import (
+    PEM_NU0,
+    PEM_NU1,
+    PEM_PRIOR_INCLUSION,
+    PEM_TAU,
+    PEM_THRESHOLD,
+    VAR_RUN,
+    ExperimentConfig,
+)
 from causal.causal_units import CausalUnit, build_causal_units
 from causal.local_pem import LocalPEM
 
@@ -69,14 +77,15 @@ def parse_args():
         description="Local PEM on VAR training residuals."
     )
 
-    parser.add_argument("--var-run", required=True,
+    parser.add_argument("--var-run", default=VAR_RUN,
                         help="Folder under outputs/var_train/.")
 
-    parser.add_argument("--nu0", type=float, default=0.05)
-    parser.add_argument("--nu1", type=float, default=1.0)
-    parser.add_argument("--tau", type=float, default=0.01)
-    parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--prior-inclusion", type=float, default=0.5)
+    parser.add_argument("--nu0", type=float, default=PEM_NU0)
+    parser.add_argument("--nu1", type=float, default=PEM_NU1)
+    parser.add_argument("--tau", type=float, default=PEM_TAU)
+    parser.add_argument("--threshold", type=float, default=PEM_THRESHOLD)
+    parser.add_argument("--prior-inclusion", type=float,
+                        default=PEM_PRIOR_INCLUSION)
     # Optimizer for the unchanged PEM-MAP objective (decision D4).
     # SLSQP is the original solver but is infeasible for large units;
     # L-BFGS-B with the same objective-value accuracy (tolerance is

@@ -301,12 +301,26 @@ def significance_table(runs_by_label, pairs):
     return pd.DataFrame(rows)
 
 
+LOCAL_DATA_DIR = IMPLEMENTATION_DIR / "datasets" / "LargeST GBA"
+
+
+def local_path(recorded, name):
+    """
+    Use the path recorded in results.json if it exists here; otherwise
+    (e.g. a run downloaded from Kaggle) the local dataset folder.
+    """
+
+    recorded = Path(recorded)
+
+    return recorded if recorded.exists() else LOCAL_DATA_DIR / name
+
+
 def load_graph_for(run, sensors):
 
     graph = run["results"]["graph"]
 
     if graph["source"] == "road_adjacency":
-        full = np.load(graph["path"], mmap_mode="r")
+        full = np.load(local_path(graph["path"], "gba_rn_adj.npy"), mmap_mode="r")
         return np.asarray(full[np.ix_(sensors, sensors)], dtype=np.float32)
 
     path = Path(graph["path"])
@@ -683,8 +697,10 @@ def main():
     out_tables.mkdir(parents=True, exist_ok=True)
     out_figures.mkdir(parents=True, exist_ok=True)
 
-    meta = pd.read_csv(Path(runs[0]["results"]["config"]["traffic_path"]).with_name(
-        "gba_meta.csv"))
+    meta = pd.read_csv(local_path(
+        Path(runs[0]["results"]["config"]["traffic_path"]).with_name("gba_meta.csv"),
+        "gba_meta.csv",
+    ))
 
     # Tables
     table = comparison_table(runs)

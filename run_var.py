@@ -33,7 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-from config.config import ExperimentConfig
+from config.config import VAR_ALPHA, VAR_LAG, ExperimentConfig
 from data.loader import load_gba_dataset
 from data.splitting import chronological_split
 from data.sensor_filter import cached_duplicate_filter, select_sensors
@@ -59,8 +59,8 @@ def parse_args():
         description="Topology-aware VAR on the GBA training split."
     )
 
-    parser.add_argument("--lag", type=int, default=1)
-    parser.add_argument("--alpha", type=float, default=1e-5)
+    parser.add_argument("--lag", type=int, default=VAR_LAG)
+    parser.add_argument("--alpha", type=float, default=VAR_ALPHA)
 
     parser.add_argument(
         "--save-residuals",
