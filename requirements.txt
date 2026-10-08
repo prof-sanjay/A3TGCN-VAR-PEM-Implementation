@@ -1,0 +1,38 @@
+# A3T-GCN + VAR + PEM ablation (E0 / E1 / E2) on LargeST-GBA 2021
+#
+# Python 3.10 (TensorFlow 2.10 supports Python 3.7-3.10).
+# Versions are the ones of the verified "traffic-gpu" environment.
+#
+# GPU:
+#   TensorFlow 2.10.1 is the last release with native-Windows GPU
+#   support. It needs CUDA 11.2 and cuDNN 8.1, e.g. with conda:
+#       conda create -n traffic-gpu python=3.10
+#       conda install -c conda-forge cudatoolkit=11.2.2 cudnn=8.1.0.77
+#       pip install -r requirements.txt
+#   On Linux the same pins work with a CUDA 11.2 / cuDNN 8.1 setup.
+#   Without a GPU everything runs on the CPU (much slower training).
+#
+# Data (not in the repository): put the LargeST-GBA files in
+#   datasets/LargeST GBA/gba_his_raw_2021.h5, gba_rn_adj.npy, gba_meta.csv
+
+# Deep learning (A3T-GCN, topology-aware VAR solver)
+tensorflow==2.10.1
+
+# Numerics (numpy < 1.24 is required by TensorFlow 2.10)
+numpy==1.23.5
+scipy==1.13.1
+
+# Data loading
+h5py==3.11.0
+pandas==2.0.3
+tables==3.8.0          # pandas.read_hdf (PeMS-BAY loader only)
+
+# Parallel PEM over causal units (needs joblib >= 1.4)
+joblib==1.6.0
+
+# Plots (evaluation/visualization.py)
+matplotlib==3.7.5
+
+# VAR-LiNGAM / bootstrap modules (not used by E0-E2; kept for the
+# causal tests and the later horizon-conditioning study)
+lingam==1.13.0
