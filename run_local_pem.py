@@ -141,7 +141,21 @@ def run_unit(
 
     local_residuals holds only this unit's columns, in the order of
     ``nodes``; the unit is therefore re-indexed to 0..p-1.
+
+    It may also be a tuple (residual_file, row_start, row_end): the
+    worker then reads the unit's columns itself from the memory-mapped
+    residual file. This keeps the task small, so joblib does not copy
+    every unit's residuals to temporary files on disk.
     """
+
+    if isinstance(local_residuals, tuple):
+
+        residual_file, row_start, row_end = local_residuals
+
+        local_residuals = np.ascontiguousarray(
+            np.load(residual_file, mmap_mode="r")[row_start:row_end, nodes],
+            dtype=np.float64,
+        )
 
     p = len(nodes)
 
@@ -365,8 +379,10 @@ def main():
                 i,
                 int(units[i].target),
                 nodes,
-                np.ascontiguousarray(
-                    residuals[row_slice, nodes], dtype=np.float64
+                (
+                    str(var_dir / "residuals.npy"),
+                    row_range.start,
+                    row_range.stop,
                 ),
                 pem_kwargs,
                 str(unit_dir / f"unit_{i:05d}.npz"),

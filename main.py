@@ -52,6 +52,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+import h5py
 import numpy as np
 import tensorflow.compat.v1 as tf
 
@@ -92,7 +93,11 @@ from .training.metrics import (
     mae,
     r2_score,
     accuracy,
+    masked_mape,
 )
+
+# Targets below this flow are excluded from MAPE (vehicles / 5 min).
+MAPE_MIN_FLOW = 10.0
 
 
 # ============================================================
@@ -273,6 +278,149 @@ def predict_dataset(
     )
 
     return targets, predictions
+
+
+# ============================================================
+# Detailed outputs
+# ============================================================
+
+def _error_summary(targets, predictions):
+
+    return {
+        "windows": int(len(targets)),
+        "rmse": float(rmse(targets, predictions)) if len(targets) else None,
+        "mae": float(mae(targets, predictions)) if len(targets) else None,
+        "masked_mape": (
+            masked_mape(targets, predictions, MAPE_MIN_FLOW)
+            if len(targets) else None
+        ),
+    }
+
+
+def save_test_outputs(
+    run_dir,
+    results,
+    config,
+    sensors,
+    test_starts,
+    val_end,
+    test_row_observed,
+    targets,
+    predictions,
+):
+    """
+    Save everything needed to compare runs on identical test targets:
+
+        test_predictions.npz   targets / predictions (vehicles), target
+                               timestamps and rows, sensors, and whether
+                               the input window was fully observed
+        per_sensor_metrics.csv MAE / RMSE / masked MAPE per sensor
+        time_of_day_metrics.csv MAE / RMSE per 5-minute slot
+        history.csv            per-epoch training / validation curve
+
+    and add the fully-observed vs filled-input breakdown to results.
+    """
+
+    num_nodes = targets.shape[1]
+    pre_len = config.pre_len
+
+    # Rows of the full year for every target row (window-major,
+    # then forecast step, as produced by predict_dataset).
+    target_rows = (
+        val_end
+        + np.repeat(test_starts, pre_len)
+        + config.seq_len
+        + np.tile(np.arange(pre_len), len(test_starts))
+    ).astype(np.int64)
+
+    with h5py.File(config.traffic_path, "r") as f:
+        timestamps = np.asarray(f["timestamps"][:])[target_rows]
+        sensor_ids = np.asarray(f["sensor_ids"][:])[sensors]
+
+    # Was every INPUT value of the window originally observed?
+    # (False = the window used gap-band filled inputs.)
+    input_observed = np.array([
+        bool(np.all(test_row_observed[s : s + config.seq_len]))
+        for s in test_starts
+    ])
+    input_observed = np.repeat(input_observed, pre_len)
+
+    np.savez_compressed(
+        run_dir / "test_predictions.npz",
+        targets=targets.astype(np.float32),
+        predictions=predictions.astype(np.float32),
+        target_rows=target_rows,
+        timestamps_ns=timestamps.astype(np.int64),
+        sensors=np.asarray(sensors, dtype=np.int64),
+        sensor_ids=sensor_ids.astype(np.int64),
+        input_fully_observed=input_observed,
+    )
+
+    # Per-sensor metrics
+    errors = predictions.astype(np.float64) - targets.astype(np.float64)
+    valid_mape = np.abs(targets) >= MAPE_MIN_FLOW
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        sensor_mape = 100.0 * np.nanmean(
+            np.where(valid_mape, np.abs(errors) / np.abs(targets), np.nan),
+            axis=0,
+        )
+
+    with open(run_dir / "per_sensor_metrics.csv", "w", encoding="utf-8") as f:
+        f.write("sensor_index,sensor_id,mae,rmse,masked_mape,mean_flow\n")
+        for j in range(num_nodes):
+            f.write(
+                f"{int(sensors[j])},{int(sensor_ids[j])},"
+                f"{np.mean(np.abs(errors[:, j])):.6f},"
+                f"{np.sqrt(np.mean(errors[:, j] ** 2)):.6f},"
+                f"{sensor_mape[j]:.6f},"
+                f"{np.mean(targets[:, j]):.6f}\n"
+            )
+
+    # Time-of-day metrics (5-minute slots, local time of the data)
+    times = timestamps.astype(np.int64).astype("datetime64[ns]")
+
+    minutes = (
+        (times - times.astype("datetime64[D]"))
+        .astype("timedelta64[m]").astype(np.int64)
+    )
+    slots = minutes // 5
+
+    with open(run_dir / "time_of_day_metrics.csv", "w", encoding="utf-8") as f:
+        f.write("slot,time,count,mae,rmse\n")
+        for slot in range(288):
+            rows = slots == slot
+            if not np.any(rows):
+                continue
+            f.write(
+                f"{slot},{slot * 5 // 60:02d}:{slot * 5 % 60:02d},"
+                f"{int(rows.sum())},"
+                f"{np.mean(np.abs(errors[rows])):.6f},"
+                f"{np.sqrt(np.mean(errors[rows] ** 2)):.6f}\n"
+            )
+
+    # Training curve
+    with open(run_dir / "history.csv", "w", encoding="utf-8") as f:
+        keys = list(results["history"][0].keys())
+        f.write(",".join(keys) + "\n")
+        for row in results["history"]:
+            f.write(",".join(str(row[k]) for k in keys) + "\n")
+
+    results["test_breakdown"] = {
+        "inputs_fully_observed": _error_summary(
+            targets[input_observed], predictions[input_observed]
+        ),
+        "inputs_partly_filled": _error_summary(
+            targets[~input_observed], predictions[~input_observed]
+        ),
+    }
+
+    results["test_outputs"] = [
+        "test_predictions.npz",
+        "per_sensor_metrics.csv",
+        "time_of_day_metrics.csv",
+        "history.csv",
+    ]
 
 
 # ============================================================
@@ -825,10 +973,33 @@ def main():
         ),
     }
 
+    results["test_metrics"]["masked_mape"] = masked_mape(
+        test_targets_original,
+        test_predictions_original,
+        MAPE_MIN_FLOW,
+    )
+    results["test_metrics"]["mape_min_flow"] = MAPE_MIN_FLOW
+
     for name, value in results["test_metrics"].items():
-        print(f"{name.upper():9s}: {value:.6f}")
+        print(f"{name.upper():12s}: {value:.6f}")
 
     trainer.close()
+
+    # --------------------------------------------------------
+    # Detailed test outputs for the E0 / E1 / E2 comparison
+    # --------------------------------------------------------
+
+    save_test_outputs(
+        run_dir,
+        results,
+        config,
+        sensors,
+        test_starts,
+        val_end,
+        target_row_ok["test"],
+        test_targets_original,
+        test_predictions_original,
+    )
 
     # --------------------------------------------------------
     # Save results

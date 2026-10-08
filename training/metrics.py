@@ -57,3 +57,25 @@ def accuracy(y_true, y_pred, threshold=0.1):
     relative_error = np.abs(y_true - y_pred) / denominator
 
     return np.mean(relative_error <= threshold)
+
+def masked_mape(y_true, y_pred, min_true=10.0):
+    """
+    Mean Absolute Percentage Error (in %) over targets with
+    |y_true| >= min_true.
+
+    Low flows (night, zero readings) make percentage errors explode,
+    so they are excluded, as is common for traffic flow (LargeST
+    reports MAPE on non-zero targets). The threshold is reported
+    with the result.
+    """
+    y_true = np.asarray(y_true, dtype=np.float64)
+    y_pred = np.asarray(y_pred, dtype=np.float64)
+
+    mask = np.abs(y_true) >= min_true
+
+    if not np.any(mask):
+        return float("nan")
+
+    return float(
+        100.0 * np.mean(np.abs(y_true[mask] - y_pred[mask]) / np.abs(y_true[mask]))
+    )
