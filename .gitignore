@@ -1,0 +1,64 @@
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# ------------------------------------------------------------
+# Datasets (large; download LargeST-GBA separately)
+#   datasets/LargeST GBA/      ~830 MB
+#   datasets/PeMS-BAY-2022/    separate git clone, not used
+# ------------------------------------------------------------
+datasets/
+
+# ------------------------------------------------------------
+# Generated outputs (recreated by the scripts)
+#   outputs/var_train*/    VAR coefficients, residuals (~0.9 GB/run)
+#   outputs/pem/           per-unit PEM results, sweeps
+#   outputs/graphs/        E1 / E2 graph artifacts
+#   outputs/sensor_filter/ cached duplicate-sensor filter
+#   results/               A3T-GCN runs: checkpoints, results.json
+# ------------------------------------------------------------
+outputs/
+results/
+artifacts/
+
+# Large array / model files anywhere else
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.pkl
+*.ckpt
+*.data-00000-of-00001
+*.index
+*.meta
+checkpoint
+
+# Logs
+*.log
+log_*.txt
+
+# Generated report (recreated by analyze_missing_gaps.py)
+gba_sensor_missing_gap_report.csv
+
+# Superseded, broken backup of the old E2 pipeline
+main_e2_backup.py
+
+# ------------------------------------------------------------
+# Editors / OS
+# ------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+Desktop.ini
