@@ -468,6 +468,14 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed (default: config.seed = 42). Only the "
+             "random initialisation changes; report every seed run.",
+    )
+
+    parser.add_argument(
         "--selection-only",
         action="store_true",
         help="Model selection run: train + validate only, the test "
@@ -500,6 +508,9 @@ def main():
 
     if args.clip_norm is not None:
         config.grad_clip_norm = args.clip_norm
+
+    if args.seed is not None:
+        config.seed = args.seed
 
     config.validate()
 
