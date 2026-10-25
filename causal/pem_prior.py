@@ -116,3 +116,48 @@ class PEMPrior:
         np.fill_diagonal(prior_edges, False)
 
         return prior_edges
+
+
+def road_prior_eta(
+    adjacency: np.ndarray,
+    high: float = 0.7,
+    low: float = 0.3,
+) -> np.ndarray:
+    """
+    Symmetric PEM prior-inclusion matrix eta from a directed
+    (possibly asymmetric) road adjacency.
+
+    Directional plausibility (PEM paper, Section 3):
+
+        w[target, source] = high   if adjacency[target, source] != 0
+                            low    otherwise
+
+    (adjacency[i, j] != 0 means j -> i, the convention of
+    causal/graph_builders.py.) The undirected inclusion strength is
+
+        eta[j, k] = max(w[j, k], w[k, j])
+
+    i.e. eta = high when a road link exists in EITHER direction and
+    low otherwise. Direction is left to the PEM-LBN ordering step.
+    The diagonal is 0 (self-edges are not causal edges).
+    """
+
+    if not 0.0 < low < high < 1.0:
+        raise ValueError(
+            "Require 0 < low < high < 1."
+        )
+
+    adjacency = np.asarray(adjacency)
+
+    if adjacency.ndim != 2 or adjacency.shape[0] != adjacency.shape[1]:
+        raise ValueError(
+            "adjacency must be a square matrix."
+        )
+
+    support = np.where(
+        adjacency != 0,
+        high,
+        low,
+    ).astype(np.float64)
+
+    return PEMPrior().calculate_eta(support)

@@ -1,20 +1,24 @@
 """
-E0 / E1 / E2 ablation runner for A3T-GCN on LargeST-GBA 2021.
+E0-E7 ablation runner for A3T-GCN on LargeST-GBA 2021.
 
-    E0 : A3T-GCN on the road-network adjacency.
-    E1 : A3T-GCN on the topology-aware VAR graph.
-    E2 : A3T-GCN on the VAR + PEM probabilistic causal graph.
+The experiments are defined in experiments/registry.py (docs/
+architecture.md): E0 road graph, E1 VAR, E2 VAR-LiNGAM, E3 VAR + PEM
+(the former E2), E4 VAR-LiNGAM + PEM, E5 horizon graphs, E6
+data-driven neighbourhoods, E7 road prior.
 
-Only the graph differs between E0, E1 and E2. Everything else
+Only the graph differs between experiments. Everything else
 (data, split, preprocessing, missing-value policy, model, training,
 validation, checkpointing, metrics) is shared via ExperimentConfig.
 
-The E1 / E2 graphs are built OFFLINE from the TRAINING split only
+Graphs other than the road graph are built OFFLINE from the TRAINING split only
 (VAR: run_var.py, PEM: run_local_pem.py) and passed in as an .npz
 graph artifact with the keys:
 
     adjacency   float array (num_nodes, num_nodes), G[target, source]
-    experiment  "E1" or "E2"
+    method      graph method (registry graph_method; legacy artifacts
+                carry only the old label "E1" / "E2" = var / var_pem)
+    experiment  label of the experiment it was built for
+    orientation "target_source"
     train_end   number of training timesteps used to build the graph
     num_nodes   number of sensors
     sensors     original GBA indices of the sensors (after filtering)
@@ -22,7 +26,7 @@ graph artifact with the keys:
 VAR and PEM are therefore never executed inside this process, and
 E0 cannot use them by construction.
 
-Data handling (shared by E0 / E1 / E2, set in ExperimentConfig):
+Data handling (shared by every experiment, set in ExperimentConfig):
 
     sensor_filter = "duplicates":
         sensors with copied series (identified on TRAIN only) are
@@ -58,7 +62,7 @@ import tensorflow.compat.v1 as tf
 
 tf.disable_v2_behavior()
 
-from .config.config import ExperimentConfig
+from .config.config import GRAPH_DIR, ExperimentConfig
 
 from .data.loader import load_gba_dataset
 from .data.splitting import chronological_split
@@ -83,6 +87,8 @@ from .data.imputation import (
 )
 
 from .causal.graph_builders import to_model_orientation
+from .experiments.registry import EXPERIMENTS, artifact_method, get_experiment
+from .graph.adjacency import check_model_graph, graph_diagnostics
 
 from .models.a3tgcn import A3TGCNModel
 
@@ -94,7 +100,15 @@ from .training.metrics import (
     r2_score,
     accuracy,
     masked_mape,
+    evaluate_metrics,
 )
+from .training.run_logger import (
+    EpochMetricsLogger,
+    read_epoch_metrics,
+    software_versions,
+    write_run_summary,
+)
+from .training.stopping import MilestoneTracker, TrainingStopper
 
 # Targets below this flow are excluded from MAPE (vehicles / 5 min).
 MAPE_MIN_FLOW = 10.0
@@ -111,70 +125,74 @@ def set_seeds(seed):
 
 
 # ============================================================
-# Graph selection (the only E0 / E1 / E2 difference)
+# Graph selection (the only difference between experiments)
 # ============================================================
-
-def graph_statistics(adjacency):
-    """
-    Summary statistics of the graph given to A3T-GCN.
-    """
-
-    off_diagonal = adjacency.copy()
-    np.fill_diagonal(off_diagonal, 0.0)
-
-    edges = off_diagonal != 0
-    weights = off_diagonal[edges]
-
-    num_nodes = adjacency.shape[0]
-
-    return {
-        "num_nodes": int(num_nodes),
-        "num_edges_off_diagonal": int(edges.sum()),
-        "density_off_diagonal": float(
-            edges.sum() / (num_nodes * (num_nodes - 1))
-        ),
-        "num_self_loops": int(np.count_nonzero(np.diag(adjacency))),
-        "num_reciprocal_pairs": int((edges & edges.T).sum() // 2),
-        "isolated_nodes": int(
-            np.sum(~edges.any(axis=0) & ~edges.any(axis=1))
-        ),
-        "is_symmetric": bool(np.array_equal(adjacency, adjacency.T)),
-        "weight_min": float(weights.min()) if weights.size else 0.0,
-        "weight_mean": float(weights.mean()) if weights.size else 0.0,
-        "weight_max": float(weights.max()) if weights.size else 0.0,
-    }
-
 
 def load_graph(config, road_adjacency, train_end, sensors):
     """
-    Return the adjacency matrix used by A3T-GCN.
+    Return the graph for A3T-GCN in the [target, source] convention,
+    with its checks and diagnostics.
 
-    E0:
-        Road-network adjacency, unchanged.
+    graph_method "road" (E0):
+        Road-network adjacency, unchanged (self-loops allowed).
 
-    E1 / E2:
-        Offline graph artifact. Its metadata must show that it was
-        built from exactly this training split and sensor set.
+    any other method:
+        Offline graph artifact. Its method must be the experiment's
+        method (experiments/registry.py), and it must have been built
+        from exactly this training split and sensor set, in the
+        [target, source] orientation. Causal graphs may not contain
+        self-loops. Directed graphs and weights are used unchanged.
     """
 
-    if config.experiment == "E0":
+    spec = get_experiment(config.experiment)
 
-        return np.asarray(road_adjacency, dtype=np.float32), {
+    if spec.graph_method == "none":
+
+        # No-graph baseline: A3T-GCN adds the identity, so each
+        # sensor only sees its own history.
+        adjacency = np.zeros((len(sensors), len(sensors)), dtype=np.float32)
+
+        return adjacency, {
+            "source": "no_graph",
+            "method": "none",
+            "path": None,
+            "statistics": graph_diagnostics(adjacency),
+        }
+
+    if spec.graph_method == "road":
+
+        adjacency = np.asarray(road_adjacency, dtype=np.float32)
+
+        return adjacency, {
             "source": "road_adjacency",
+            "method": "road",
             "path": config.adjacency_path,
+            "statistics": check_model_graph(
+                adjacency, len(sensors), allow_self_loops=True,
+            ),
         }
 
     with np.load(config.graph_path, allow_pickle=False) as artifact:
 
-        adjacency = np.asarray(
-            artifact["adjacency"],
-            dtype=np.float32,
+        files = {name: artifact[name] for name in artifact.files}
+
+    adjacency = np.asarray(files["adjacency"], dtype=np.float32)
+    method = artifact_method(files)
+    graph_train_end = int(files["train_end"])
+    graph_sensors = np.asarray(files["sensors"], dtype=np.int64)
+    orientation = str(files.get("orientation", "target_source"))
+
+    if method != spec.graph_method:
+        raise ValueError(
+            f"Graph artifact method is {method!r}, but {config.experiment} "
+            f"needs {spec.graph_method!r}."
         )
 
-        graph_experiment = str(artifact["experiment"])
-        graph_train_end = int(artifact["train_end"])
-        graph_num_nodes = int(artifact["num_nodes"])
-        graph_sensors = np.asarray(artifact["sensors"], dtype=np.int64)
+    if orientation != "target_source":
+        raise ValueError(
+            f"Graph artifact orientation {orientation!r}; expected "
+            "'target_source'."
+        )
 
     if not np.array_equal(graph_sensors, sensors):
         raise ValueError(
@@ -183,33 +201,23 @@ def load_graph(config, road_adjacency, train_end, sensors):
             f"({len(sensors)} sensors)."
         )
 
-    if graph_experiment != config.experiment:
-        raise ValueError(
-            f"Graph artifact was built for {graph_experiment}, "
-            f"but the run is {config.experiment}."
-        )
-
     if graph_train_end != train_end:
         raise ValueError(
             "Graph artifact was not built from this training split: "
             f"train_end {graph_train_end} != {train_end}."
         )
 
-    if adjacency.shape != road_adjacency.shape or (
-        graph_num_nodes != road_adjacency.shape[0]
-    ):
-        raise ValueError(
-            f"Graph shape {adjacency.shape} does not match "
-            f"{road_adjacency.shape}."
-        )
-
-    if not np.all(np.isfinite(adjacency)):
-        raise ValueError("Graph artifact contains non-finite values.")
+    statistics = check_model_graph(
+        adjacency, len(sensors), allow_self_loops=False,
+    )
 
     return adjacency, {
         "source": f"{config.experiment}_artifact",
+        "method": method,
+        "artifact_label": str(files["experiment"]),
         "path": str(config.graph_path),
         "train_end": graph_train_end,
+        "statistics": statistics,
     }
 
 
@@ -430,19 +438,21 @@ def save_test_outputs(
 def parse_args():
 
     parser = argparse.ArgumentParser(
-        description="E0 / E1 / E2 A3T-GCN ablation on LargeST-GBA."
+        description="E0-E7 A3T-GCN ablation on LargeST-GBA."
     )
 
     parser.add_argument(
         "--experiment",
-        choices=["E0", "E1", "E2"],
+        choices=sorted(EXPERIMENTS),
         default="E0",
+        help="E0-E7 (experiments/registry.py). The former E2 "
+             "(VAR + PEM) is E3.",
     )
 
     parser.add_argument(
         "--graph",
         default=None,
-        help="Graph artifact (.npz) for E1 / E2.",
+        help="Graph artifact (.npz); default FINAL_GRAPHS[experiment].",
     )
 
     parser.add_argument(
@@ -457,7 +467,7 @@ def parse_args():
         type=float,
         default=None,
         help="Override learning_rate (stability checks; must then be "
-             "identical for E0 / E1 / E2).",
+             "identical for every experiment compared).",
     )
 
     parser.add_argument(
@@ -485,7 +495,58 @@ def parse_args():
     parser.add_argument(
         "--run-name",
         default=None,
-        help="Output folder under results/ (default: experiment).",
+        help="Output folder under results/ "
+             "(default: <experiment>/seed_<seed>).",
+    )
+
+    parser.add_argument(
+        "--early-stopping",
+        type=int,
+        default=None,
+        help="Stop after N epochs without validation improvement "
+             "(default: config.early_stopping_patience = off).",
+    )
+
+    parser.add_argument(
+        "--max-hours",
+        type=float,
+        default=None,
+        help="Wall-clock budget for the whole process (Kaggle: 11). "
+             "No epoch is started that would end after it; the best "
+             "checkpoint is then evaluated as usual.",
+    )
+
+    parser.add_argument(
+        "--milestones",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Also keep the best checkpoint among epochs <= M for each "
+             "M (e.g. 20 in a 30-epoch selection run).",
+    )
+
+    parser.add_argument(
+        "--evaluate-only",
+        default=None,
+        metavar="RUN_DIR",
+        help="Evaluate the TEST set once for an existing selection run "
+             "(its saved settings and checkpoint; no training).",
+    )
+
+    parser.add_argument(
+        "--milestone",
+        type=int,
+        default=None,
+        help="With --evaluate-only: use the best checkpoint among "
+             "epochs <= MILESTONE (must have been saved with --milestones).",
+    )
+
+    parser.add_argument(
+        "--smoke",
+        type=int,
+        default=None,
+        help="Smoke test only: use the first N train / val / test "
+             "windows. Results are marked as a smoke run.",
     )
 
     return parser.parse_args()
@@ -493,12 +554,58 @@ def parse_args():
 
 def main():
 
+    process_start = time.perf_counter()
+
     args = parse_args()
 
-    config = ExperimentConfig(
-        experiment=args.experiment,
-        graph_path=args.graph,
-    )
+    previous = None
+
+    if args.evaluate_only:
+
+        # --------------------------------------------------------
+        # Test evaluation of an existing selection run: its own
+        # settings, data pipeline and checkpoint; nothing else.
+        # --------------------------------------------------------
+
+        eval_dir = Path(args.evaluate_only).resolve()
+
+        with open(eval_dir / "results.json", encoding="utf-8") as f:
+            previous = json.load(f)
+
+        if isinstance(previous.get("test_metrics"), dict):
+            raise RuntimeError(
+                f"{eval_dir}: the test set was already evaluated; "
+                "it is evaluated only once per run."
+            )
+
+        args.smoke = previous.get("smoke_windows")
+
+        # A run made elsewhere (e.g. Kaggle) saved that machine's
+        # paths: use this machine's files, which must have the same
+        # names (the graph artifact is checked again when loaded).
+        saved = dict(previous["config"])
+        defaults = ExperimentConfig()
+
+        for key in ("traffic_path", "adjacency_path", "results_dir"):
+            if not Path(saved[key]).exists():
+                if Path(saved[key]).name != Path(getattr(defaults, key)).name:
+                    raise FileNotFoundError(f"{key} {saved[key]} not available here")
+                saved[key] = getattr(defaults, key)
+
+        if saved.get("graph_path") and not Path(saved["graph_path"]).exists():
+            saved["graph_path"] = str(GRAPH_DIR / Path(saved["graph_path"]).name)
+
+        config = ExperimentConfig(**saved)
+
+    else:
+
+        if args.milestone is not None:
+            raise ValueError("--milestone needs --evaluate-only")
+
+        config = ExperimentConfig(
+            experiment=args.experiment,
+            graph_path=args.graph,
+        )
 
     if args.epochs is not None:
         config.training_epoch = args.epochs
@@ -512,11 +619,28 @@ def main():
     if args.seed is not None:
         config.seed = args.seed
 
+    if args.early_stopping is not None:
+        config.early_stopping_patience = args.early_stopping
+
+    if previous is not None:
+        overridden = [
+            name for name in ("epochs", "learning_rate", "clip_norm", "seed",
+                              "early_stopping", "graph", "run_name", "milestones")
+            if getattr(args, name) is not None
+        ]
+        if overridden:
+            raise ValueError(
+                f"--evaluate-only uses the run's saved settings; remove {overridden}"
+            )
+
     config.validate()
 
-    run_dir = Path(config.results_dir) / (
-        args.run_name or config.experiment
-    )
+    if previous is not None:
+        run_dir = eval_dir
+    else:
+        run_dir = Path(config.results_dir) / (
+            args.run_name or f"{config.experiment}/seed_{config.seed}"
+        )
 
     checkpoint_path = str(run_dir / "checkpoints" / "best_model")
 
@@ -530,7 +654,19 @@ def main():
         "config": asdict(config),
         "epochs_overridden": args.epochs is not None,
         "selection_only": args.selection_only,
+        "smoke_windows": args.smoke,
+        "software": software_versions(),
     }
+
+    if previous is not None:
+        # Keep everything recorded during training; only the test
+        # evaluation is added below.
+        results = {
+            **previous,
+            "software_evaluation": results["software"],
+        }
+        results.pop("test_metrics", None)
+        args.selection_only = False
 
     print("=" * 70)
     print(f"{config.experiment}: A3T-GCN ABLATION RUN")
@@ -644,7 +780,7 @@ def main():
         )
 
     # --------------------------------------------------------
-    # Graph (the only difference between E0 / E1 / E2)
+    # Graph (the only difference between experiments)
     # --------------------------------------------------------
 
     adjacency, graph_info = load_graph(
@@ -654,10 +790,9 @@ def main():
         sensors,
     )
 
-    graph_info["statistics"] = graph_statistics(adjacency)
     graph_info["orientation"] = (
         "stored as G[target, source]; transposed once for A3T-GCN "
-        "(decision D2, identical for E0/E1/E2)"
+        "(decision D2, identical for every experiment)"
     )
     results["graph"] = graph_info
 
@@ -782,6 +917,12 @@ def main():
         config.seq_len, config.pre_len,
     )
 
+    if args.smoke is not None:
+        train_starts = train_starts[: args.smoke]
+        val_starts = val_starts[: args.smoke]
+        test_starts = test_starts[: args.smoke]
+        print(f"\nSMOKE RUN: first {args.smoke} windows per split")
+
     results["valid_sequences"] = {
         "train": int(len(train_starts)),
         "val": int(len(val_starts)),
@@ -826,122 +967,238 @@ def main():
         min_lr=config.lr_min,
     )
 
-    best_val_rmse = float("inf")
-    best_epoch = -1
+    if previous is not None:
 
-    history = []
+        # --------------------------------------------------------
+        # Evaluate-only: best epoch from the run's epoch_metrics.csv,
+        # among epochs <= --milestone if given.
+        # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # Training
-    # --------------------------------------------------------
+        rows = read_epoch_metrics(run_dir / "epoch_metrics.csv")
 
-    print("\n")
-    print("=" * 70)
-    print("A3T-GCN TRAINING")
-    print("=" * 70)
+        if args.milestone is None:
+            checkpoint_name = "best_model"
+            candidates = rows
+        else:
+            checkpoint_name = f"best_until_epoch_{args.milestone}"
+            candidates = [r for r in rows if r["epoch"] <= args.milestone]
 
-    training_start = time.perf_counter()
+        if not candidates:
+            raise ValueError("No epochs to choose from.")
 
-    for epoch in range(config.training_epoch):
+        best_row = min(candidates, key=lambda r: (r["RMSE"], r["epoch"]))
+        best_row = {**best_row, "is_best_epoch": True}
+        best_epoch = best_row["epoch"] - 1
+        best_val_rmse = best_row["RMSE"] / max_value
 
-        epoch_start = time.perf_counter()
+        checkpoint_path = str(run_dir / "checkpoints" / checkpoint_name)
+        history = previous["history"]
+        training_seconds = previous["training_seconds"]
 
-        batch_losses = []
+        results["evaluated_checkpoint"] = {
+            "checkpoint": checkpoint_name,
+            "milestone": args.milestone,
+            "best_epoch": best_row["epoch"],
+            "epochs_trained": len(rows),
+        }
+        results["best_epoch"] = best_row["epoch"]
+        results["best_val_rmse"] = float(best_val_rmse)
+        results["best_val_rmse_original"] = float(best_row["RMSE"])
 
-        for X_batch, y_batch in iterate_window_batches(
-            train_norm,
-            train_starts,
-            config.seq_len,
-            config.pre_len,
-            config.batch_size,
-        ):
+        print(f"\nEvaluate-only: {checkpoint_name} (epoch {best_row['epoch']})")
 
-            feed_dict = {
-                model.inputs: X_batch,
-                model.labels: y_batch,
-            }
+    else:
 
-            batch_losses.append(
-                trainer.train_batch(feed_dict)
+        best_val_rmse = float("inf")
+        best_epoch = -1
+
+        history = []
+
+        epoch_logger = EpochMetricsLogger(run_dir / "epoch_metrics.csv")
+
+        stopper = TrainingStopper(
+            early_stopping_patience=config.early_stopping_patience,
+            # 15 minutes kept for the final validation / test pass.
+            max_seconds=(
+                None if args.max_hours is None
+                else args.max_hours * 3600 - 900
+            ),
+        )
+
+        milestones = MilestoneTracker(args.milestones)
+
+        # --------------------------------------------------------
+        # Training
+        # --------------------------------------------------------
+
+        print("\n")
+        print("=" * 70)
+        print("A3T-GCN TRAINING")
+        print("=" * 70)
+
+        training_start = time.perf_counter()
+
+        for epoch in range(config.training_epoch):
+
+            if stopper.should_stop(time.perf_counter() - process_start):
+                print(f"\nTraining stopped before epoch {epoch + 1}: {stopper.reason}")
+                break
+
+            epoch_start = time.perf_counter()
+
+            batch_losses = []
+
+            for X_batch, y_batch in iterate_window_batches(
+                train_norm,
+                train_starts,
+                config.seq_len,
+                config.pre_len,
+                config.batch_size,
+            ):
+
+                feed_dict = {
+                    model.inputs: X_batch,
+                    model.labels: y_batch,
+                }
+
+                batch_losses.append(
+                    trainer.train_batch(feed_dict)
+                )
+
+            train_loss = (
+                float(np.mean(batch_losses))
+                if batch_losses
+                else float("nan")
             )
 
-        train_loss = (
-            float(np.mean(batch_losses))
-            if batch_losses
-            else float("nan")
-        )
+            # ----------------------------------------------------
+            # Validation
+            # ----------------------------------------------------
 
-        # ----------------------------------------------------
-        # Validation
-        # ----------------------------------------------------
+            val_targets, val_predictions = predict_dataset(
+                trainer,
+                model,
+                val_norm,
+                val_starts,
+                config,
+            )
 
-        val_targets, val_predictions = predict_dataset(
-            trainer,
-            model,
-            val_norm,
-            val_starts,
-            config,
-        )
+            val_rmse = rmse(val_targets, val_predictions)
+            val_mae = mae(val_targets, val_predictions)
 
-        val_rmse = rmse(val_targets, val_predictions)
-        val_mae = mae(val_targets, val_predictions)
+            # All validation metrics in original units (vehicles).
+            val_metrics = evaluate_metrics(
+                val_targets * max_value,
+                val_predictions * max_value,
+                MAPE_MIN_FLOW,
+            )
 
-        # ----------------------------------------------------
-        # Scheduler
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # Scheduler
+            # ----------------------------------------------------
 
-        current_lr = scheduler.step(val_rmse)
+            # Rate used during this epoch (epoch_metrics.csv convention);
+            # history.csv keeps the rate after the scheduler step.
+            lr_used = scheduler.current_lr
 
-        trainer.set_learning_rate(current_lr)
+            current_lr = scheduler.step(val_rmse)
 
-        # ----------------------------------------------------
-        # Save BEST model using validation RMSE.
-        # Test data is NOT used here.
-        # ----------------------------------------------------
+            trainer.set_learning_rate(current_lr)
 
-        if val_rmse < best_val_rmse:
+            # ----------------------------------------------------
+            # Save BEST model using validation RMSE.
+            # Test data is NOT used here.
+            # ----------------------------------------------------
 
-            best_val_rmse = val_rmse
-            best_epoch = epoch
+            if val_rmse < best_val_rmse:
 
-            trainer.save(checkpoint_path)
+                best_val_rmse = val_rmse
+                best_epoch = epoch
 
-            checkpoint_status = " * BEST"
+                trainer.save(checkpoint_path)
 
-        else:
+                with open(run_dir / "checkpoints" / "best_model_epoch.json",
+                          "w", encoding="utf-8") as f:
+                    json.dump({
+                        "epoch": epoch + 1,
+                        "val_rmse_original": float(val_rmse * max_value),
+                    }, f)
 
-            checkpoint_status = ""
+                checkpoint_status = " * BEST"
 
-        epoch_seconds = time.perf_counter() - epoch_start
+            else:
 
-        history.append({
-            "epoch": epoch + 1,
-            "train_loss": train_loss,
-            "val_rmse": float(val_rmse),
-            "val_mae": float(val_mae),
-            "val_rmse_original": float(val_rmse * max_value),
-            "val_mae_original": float(val_mae * max_value),
-            "learning_rate": float(current_lr),
-            "seconds": epoch_seconds,
-        })
+                checkpoint_status = ""
 
-        print(
-            f"Epoch {epoch + 1:03d}/{config.training_epoch} | "
-            f"Loss {train_loss:.6f} | "
-            f"Val RMSE {val_rmse:.6f} | "
-            f"Val MAE {val_mae:.6f} | "
-            f"LR {current_lr:.8f} | "
-            f"{epoch_seconds:.0f}s"
-            f"{checkpoint_status}"
-        )
+            for milestone in milestones.update(epoch + 1, val_rmse):
 
-    training_seconds = time.perf_counter() - training_start
+                name = f"best_until_epoch_{milestone}"
+                trainer.save(str(run_dir / "checkpoints" / name))
 
-    results["history"] = history
-    results["training_seconds"] = training_seconds
-    results["best_epoch"] = best_epoch + 1
-    results["best_val_rmse"] = float(best_val_rmse)
-    results["best_val_rmse_original"] = float(best_val_rmse * max_value)
+                with open(run_dir / "checkpoints" / f"{name}.json",
+                          "w", encoding="utf-8") as f:
+                    json.dump({
+                        "epoch": epoch + 1,
+                        "val_rmse_original": float(val_rmse * max_value),
+                    }, f)
+
+            epoch_seconds = time.perf_counter() - epoch_start
+
+            stopper.after_epoch(val_rmse, epoch_seconds)
+
+            logged_best = epoch_logger.log_epoch(
+                epoch=epoch + 1,
+                metrics=val_metrics,
+                learning_rate=lr_used,
+                train_loss=train_loss,
+                elapsed_seconds=time.perf_counter() - training_start,
+            )
+
+            if logged_best != bool(checkpoint_status):
+                raise RuntimeError(
+                    "epoch_metrics best epoch disagrees with the checkpoint rule"
+                )
+
+            history.append({
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "val_rmse": float(val_rmse),
+                "val_mae": float(val_mae),
+                "val_rmse_original": float(val_rmse * max_value),
+                "val_mae_original": float(val_mae * max_value),
+                "learning_rate": float(current_lr),
+                "seconds": epoch_seconds,
+            })
+
+            print(
+                f"Epoch {epoch + 1:03d}/{config.training_epoch} | "
+                f"Loss {train_loss:.6f} | "
+                f"Val RMSE {val_rmse:.6f} | "
+                f"Val MAE {val_mae:.6f} | "
+                f"LR {current_lr:.8f} | "
+                f"{epoch_seconds:.0f}s"
+                f"{checkpoint_status}"
+            )
+
+        training_seconds = time.perf_counter() - training_start
+
+        results["history"] = history
+        results["training_seconds"] = training_seconds
+        results["best_epoch"] = best_epoch + 1
+        results["best_val_rmse"] = float(best_val_rmse)
+        results["best_val_rmse_original"] = float(best_val_rmse * max_value)
+        results["stopped_early"] = stopper.reason
+        results["milestones"] = {
+            str(m): milestones.best_epoch[m] for m in milestones.milestones
+        }
+
+        if best_epoch < 0:
+            raise RuntimeError(
+                f"No epoch was completed ({stopper.reason}); nothing to evaluate."
+            )
+
+        checkpoint_name = "best_model"
+        best_row = epoch_logger.best_row()
 
     # --------------------------------------------------------
     # Restore best validation checkpoint
@@ -957,12 +1214,82 @@ def main():
 
     trainer.restore(checkpoint_path)
 
+    # --------------------------------------------------------
+    # Check that the restored weights ARE the best epoch: the
+    # marked row, the checkpoint record and a fresh validation
+    # pass must agree.
+    # --------------------------------------------------------
+
+    restored_targets, restored_predictions = predict_dataset(
+        trainer, model, val_norm, val_starts, config,
+    )
+
+    restored_rmse = float(
+        rmse(restored_targets, restored_predictions) * max_value
+    )
+
+    record_name = (
+        "best_model_epoch.json" if checkpoint_name == "best_model"
+        else f"{checkpoint_name}.json"
+    )
+
+    with open(run_dir / "checkpoints" / record_name, encoding="utf-8") as f:
+        checkpoint_record = json.load(f)
+
+    checkpoint_check = {
+        "epoch_metrics_best_epoch": best_row["epoch"],
+        "checkpoint_epoch": checkpoint_record["epoch"],
+        "results_best_epoch": best_epoch + 1,
+        "best_row_val_rmse": best_row["RMSE"],
+        "restored_val_rmse": restored_rmse,
+    }
+
+    checkpoint_check["consistent"] = bool(
+        best_row["epoch"] == checkpoint_record["epoch"] == best_epoch + 1
+        and abs(restored_rmse - best_row["RMSE"])
+        <= 1e-4 * max(1.0, best_row["RMSE"])
+    )
+
+    results["checkpoint_check"] = checkpoint_check
+
+    print(f"Checkpoint check : {checkpoint_check}")
+
+    if not checkpoint_check["consistent"]:
+        raise RuntimeError(f"Best-checkpoint mismatch: {checkpoint_check}")
+
+    summary = {
+        "experiment": config.experiment,
+        "seed": config.seed,
+        "run_dir": str(run_dir),
+        "smoke_windows": args.smoke,
+        "best_epoch": best_row["epoch"],
+        "best_validation_metrics": best_row,
+        "checkpoint_path": checkpoint_path,
+        "checkpoint_check": checkpoint_check,
+        "epochs_completed": len(history),
+        "stopped_early": results.get("stopped_early"),
+        "evaluated_checkpoint": results.get("evaluated_checkpoint"),
+        "training_seconds": training_seconds,
+        "valid_sequences": results["valid_sequences"],
+        "graph": {
+            "source": graph_info["source"],
+            "path": graph_info.get("path"),
+            "statistics": graph_info["statistics"],
+        },
+        "config": asdict(config),
+        "software": results["software"],
+        "test_metrics": None,
+    }
+
     if args.selection_only:
 
         # Model-selection run: the test set is never evaluated.
         trainer.close()
 
         results["test_metrics"] = "not evaluated (selection run)"
+
+        summary["test_metrics"] = "not evaluated (selection run)"
+        write_run_summary(run_dir / "run_summary.json", summary)
 
         results_path = run_dir / "results.json"
 
@@ -1016,10 +1343,19 @@ def main():
     for name, value in results["test_metrics"].items():
         print(f"{name.upper():12s}: {value:.6f}")
 
+    summary["test_metrics"] = evaluate_metrics(
+        test_targets_original,
+        test_predictions_original,
+        MAPE_MIN_FLOW,
+    )
+    summary["test_metrics"]["mape_min_flow"] = MAPE_MIN_FLOW
+
+    write_run_summary(run_dir / "run_summary.json", summary)
+
     trainer.close()
 
     # --------------------------------------------------------
-    # Detailed test outputs for the E0 / E1 / E2 comparison
+    # Detailed test outputs for the comparison of experiments
     # --------------------------------------------------------
 
     save_test_outputs(

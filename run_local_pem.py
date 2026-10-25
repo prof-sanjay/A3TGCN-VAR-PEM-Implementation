@@ -25,6 +25,17 @@ A failed unit is recorded with its error and is NOT silently treated
 as "no edges"; aggregation refuses to run while failures exist unless
 --allow-failed is given (the failures are then reported).
 
+Options (defaults reproduce the original runs and folder names):
+
+    --standardise   z_i = (e_i - mean_i) / std_i, with mean_i and std_i
+                    estimated once from ALL training residual rows and
+                    reused unchanged for any row subset (split halves).
+                    Saved as standardisation.npz in the run folder.
+    --prior road    informative symmetric eta from the road graph:
+                    eta = prior-high where a road link exists in either
+                    direction, prior-low otherwise (pem_prior.road_prior_eta,
+                    PEM paper Section 3). Default: uniform --prior-inclusion.
+
 Run from the implementation directory (traffic-causal environment):
 
     python run_local_pem.py --var-run lag1_alpha10000 --workers 10
@@ -49,16 +60,25 @@ from pathlib import Path
 import numpy as np
 
 from config.config import (
+    PEM_MAX_ITER,
     PEM_NU0,
     PEM_NU1,
+    PEM_OPTIMIZER,
+    PEM_PRIOR,
+    PEM_PRIOR_HIGH,
     PEM_PRIOR_INCLUSION,
+    PEM_PRIOR_LOW,
+    PEM_STANDARDISE,
     PEM_TAU,
     PEM_THRESHOLD,
+    PEM_TOLERANCE,
     VAR_RUN,
     ExperimentConfig,
+    pem_run_tag,
 )
 from causal.causal_units import CausalUnit, build_causal_units
 from causal.local_pem import LocalPEM
+from causal.pem_prior import road_prior_eta
 
 
 IMPLEMENTATION_DIR = Path(__file__).resolve().parent
@@ -86,15 +106,25 @@ def parse_args():
     parser.add_argument("--threshold", type=float, default=PEM_THRESHOLD)
     parser.add_argument("--prior-inclusion", type=float,
                         default=PEM_PRIOR_INCLUSION)
+    parser.add_argument("--prior", default=PEM_PRIOR,
+                        choices=["uniform", "road"],
+                        help="uniform: eta = --prior-inclusion everywhere; "
+                             "road: symmetric road-graph prior.")
+    parser.add_argument("--prior-high", type=float, default=PEM_PRIOR_HIGH)
+    parser.add_argument("--prior-low", type=float, default=PEM_PRIOR_LOW)
+    parser.add_argument("--standardise", default=PEM_STANDARDISE,
+                        action=argparse.BooleanOptionalAction,
+                        help="Standardise residuals per sensor with "
+                             "training-residual mean and std.")
     # Optimizer for the unchanged PEM-MAP objective (decision D4).
     # SLSQP is the original solver but is infeasible for large units;
     # L-BFGS-B with the same objective-value accuracy (tolerance is
     # converted to L-BFGS-B's relative ftol inside PEM) gives the same
-    # graphs and causal orders (test_pem_speedup.py, part 5).
-    parser.add_argument("--optimizer", default="L-BFGS-B",
+    # graphs and causal orders (tests/test_pem_speedup.py, part 5).
+    parser.add_argument("--optimizer", default=PEM_OPTIMIZER,
                         choices=["L-BFGS-B", "SLSQP"])
-    parser.add_argument("--max-iter", type=int, default=20000)
-    parser.add_argument("--tolerance", type=float, default=1e-6)
+    parser.add_argument("--max-iter", type=int, default=PEM_MAX_ITER)
+    parser.add_argument("--tolerance", type=float, default=PEM_TOLERANCE)
 
     parser.add_argument("--workers", type=int, default=10)
 
@@ -124,13 +154,64 @@ def parse_args():
 
 
 def settings_tag(args):
+    """Run folder name; same function as config.PEM_RUN."""
 
-    return (
-        f"{args.var_run}"
-        f"__nu0_{args.nu0:g}_nu1_{args.nu1:g}_tau_{args.tau:g}"
-        f"_thr_{args.threshold:g}_eta_{args.prior_inclusion:g}"
-        f"_{args.optimizer}"
+    return pem_run_tag(
+        var_run=args.var_run,
+        nu0=args.nu0,
+        nu1=args.nu1,
+        tau=args.tau,
+        threshold=args.threshold,
+        prior=args.prior,
+        prior_inclusion=args.prior_inclusion,
+        prior_high=args.prior_high,
+        prior_low=args.prior_low,
+        optimizer=args.optimizer,
+        standardise=args.standardise,
     )
+
+
+# ============================================================
+# Residual standardisation
+# ============================================================
+
+def residual_scaling(residuals, chunk_rows=8192):
+    """
+    Per-sensor mean and standard deviation of the TRAINING residuals
+    (finite values only), computed in row chunks so the memory-mapped
+    file is never loaded at once. Float64 accumulation.
+    """
+
+    num_nodes = residuals.shape[1]
+
+    total = np.zeros(num_nodes)
+    count = np.zeros(num_nodes)
+
+    for start in range(0, residuals.shape[0], chunk_rows):
+        block = np.asarray(residuals[start:start + chunk_rows], dtype=np.float64)
+        finite = np.isfinite(block)
+        total += np.where(finite, block, 0.0).sum(axis=0)
+        count += finite.sum(axis=0)
+
+    mean = total / np.maximum(count, 1)
+
+    # Second pass around the mean (numerically stable variance).
+    squares = np.zeros(num_nodes)
+
+    for start in range(0, residuals.shape[0], chunk_rows):
+        block = np.asarray(residuals[start:start + chunk_rows], dtype=np.float64)
+        centred = block - mean
+        squares += np.where(np.isfinite(centred), centred * centred, 0.0).sum(axis=0)
+
+    std = np.sqrt(squares / np.maximum(count, 1))
+
+    if np.any(count < 2) or not np.all(np.isfinite(std)) or np.any(std <= 0.0):
+        raise ValueError(
+            "Cannot standardise: some sensors have fewer than two finite "
+            "training residuals or zero variance."
+        )
+
+    return mean, std
 
 
 # ============================================================
@@ -144,6 +225,7 @@ def run_unit(
     local_residuals: np.ndarray,
     pem_kwargs: dict,
     output_file: str,
+    scaling: tuple | None = None,
 ) -> dict:
     """
     Run the unchanged LocalPEM on one unit and save the result.
@@ -155,6 +237,13 @@ def run_unit(
     worker then reads the unit's columns itself from the memory-mapped
     residual file. This keeps the task small, so joblib does not copy
     every unit's residuals to temporary files on disk.
+
+    pem_kwargs may contain "eta": the unit's p x p prior sub-matrix
+    (already in local order).
+
+    scaling: optional (mean, std) for this unit's columns, estimated
+    on the training residuals; the residuals are standardised with it
+    (NaNs stay NaN).
     """
 
     if isinstance(local_residuals, tuple):
@@ -165,6 +254,14 @@ def run_unit(
             np.load(residual_file, mmap_mode="r")[row_start:row_end, nodes],
             dtype=np.float64,
         )
+
+    if scaling is not None:
+
+        mean, std = scaling
+
+        local_residuals = (
+            np.asarray(local_residuals, dtype=np.float64) - mean
+        ) / std
 
     p = len(nodes)
 
@@ -355,6 +452,42 @@ def main():
         "optimizer": args.optimizer,
     }
 
+    # --------------------------------------------------------
+    # Prior and standardisation (both default off)
+    # --------------------------------------------------------
+
+    eta = None
+
+    if args.prior == "road":
+        eta = road_prior_eta(adjacency, args.prior_high, args.prior_low)
+
+    prior_settings = {
+        "prior": args.prior,
+        "prior_high": args.prior_high if args.prior == "road" else None,
+        "prior_low": args.prior_low if args.prior == "road" else None,
+        "prior_inclusion": args.prior_inclusion if args.prior == "uniform" else None,
+        "eta_high_pairs": None if eta is None else int(
+            np.count_nonzero(np.triu(eta == args.prior_high, 1))
+        ),
+    }
+
+    scaling = None
+
+    if args.standardise:
+
+        # Always ALL training rows, also for split-half runs, so every
+        # run uses the same scaling parameters.
+        mean, std = residual_scaling(residuals)
+        scaling = (mean, std)
+
+        np.savez(
+            output_dir / "standardisation.npz",
+            mean=mean,
+            std=std,
+            sensors=sensors,
+            rows=np.array([0, residuals.shape[0]]),
+        )
+
     sizes = np.array([len(units[i].nodes) for i in indices])
 
     print("=" * 70)
@@ -367,6 +500,11 @@ def main():
     print(f"Unit sizes     : min {sizes.min()}, median {np.median(sizes):.0f}, "
           f"max {sizes.max()}")
     print(f"PEM settings   : {pem_kwargs}")
+    print(f"Prior          : {prior_settings}")
+    print(f"Standardise    : {args.standardise}"
+          + (f" (std min {scaling[1].min():.2f}, median "
+             f"{np.median(scaling[1]):.2f}, max {scaling[1].max():.2f})"
+             if scaling is not None else ""))
     print(f"Workers        : {args.workers}")
     print(f"Output         : {output_dir}")
 
@@ -384,6 +522,9 @@ def main():
     def tasks():
         for i in pending:
             nodes = np.asarray(units[i].nodes, dtype=np.int64)
+            unit_kwargs = pem_kwargs
+            if eta is not None:
+                unit_kwargs = {**pem_kwargs, "eta": eta[np.ix_(nodes, nodes)]}
             yield (
                 i,
                 int(units[i].target),
@@ -393,8 +534,11 @@ def main():
                     row_range.start,
                     row_range.stop,
                 ),
-                pem_kwargs,
+                unit_kwargs,
                 str(unit_dir / f"unit_{i:05d}.npz"),
+                None if scaling is None else (
+                    scaling[0][nodes], scaling[1][nodes]
+                ),
             )
 
     start = time.perf_counter()
@@ -454,6 +598,8 @@ def main():
         "train_end": var_metadata["train_end"],
         "num_nodes": int(len(sensors)),
         "pem_settings": pem_kwargs,
+        "prior_settings": prior_settings,
+        "standardise": bool(args.standardise),
         "units_selected": int(len(indices)),
         "units_total": len(units),
         "units_skipped_too_large": skipped_large,

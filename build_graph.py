@@ -1,8 +1,11 @@
 """
-Build the E1 / E2 graph artifacts read by main.py.
+Build the graph artifacts read by main.py (E1 VAR, E3 VAR + PEM).
 
-    E1:  python build_graph.py E1 --var-run lag2_alpha1e+06
-    E2:  python build_graph.py E2 --pem-run <folder under outputs/pem>
+    E1:  python build_graph.py E1 [--var-run lag2_alpha1e+06]
+    E3:  python build_graph.py E3 [--pem-run <folder under outputs/pem>]
+
+Without --var-run / --pem-run the runs set in config/config.py
+(VAR_RUN, PEM_RUN) are used, so the file name matches FINAL_GRAPHS.
 
 Both are built from TRAINING-split results only (run_var.py,
 run_local_pem.py). The artifact stores the graph as G[target, source]
@@ -19,6 +22,8 @@ from pathlib import Path
 import numpy as np
 
 from causal.graph_builders import pem_graph, save_graph_artifact, var_graph
+from config.config import PEM_RUN, VAR_RUN
+from experiments.registry import get_experiment
 
 
 IMPLEMENTATION_DIR = Path(__file__).resolve().parent
@@ -51,9 +56,11 @@ def summarize(graph):
 def main():
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    parser.add_argument("experiment", choices=["E1", "E2"])
-    parser.add_argument("--var-run")
-    parser.add_argument("--pem-run")
+    # E1 = VAR, E3 = VAR + PEM (the former E2). E2 / E4-E7 builders
+    # are added in later phases (experiments/registry.py).
+    parser.add_argument("experiment", choices=["E1", "E3"])
+    parser.add_argument("--var-run", default=VAR_RUN)
+    parser.add_argument("--pem-run", default=PEM_RUN)
     args = parser.parse_args()
 
     GRAPH_ROOT.mkdir(parents=True, exist_ok=True)
@@ -76,7 +83,7 @@ def main():
     else:
 
         if not args.pem_run:
-            parser.error("E2 requires --pem-run")
+            parser.error("E3 requires --pem-run")
 
         source_dir = PEM_ROOT / args.pem_run
 
@@ -96,13 +103,16 @@ def main():
         path,
         graph,
         experiment=args.experiment,
+        method=get_experiment(args.experiment).graph_method,
         train_end=train_end,
         sensors=sensors,
         source_run=source,
     )
 
     summary = summarize(graph)
-    summary.update({"experiment": args.experiment, "source_run": source,
+    summary.update({"experiment": args.experiment,
+                    "method": get_experiment(args.experiment).graph_method,
+                    "source_run": source,
                     "train_end": train_end})
 
     with open(path.with_suffix(".json"), "w", encoding="utf-8") as f:

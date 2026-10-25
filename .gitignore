@@ -50,8 +50,6 @@ log_*.txt
 # Generated report (recreated by analyze_missing_gaps.py)
 gba_sensor_missing_gap_report.csv
 
-# Superseded, broken backup of the old E2 pipeline
-main_e2_backup.py
 
 # ------------------------------------------------------------
 # Editors / OS

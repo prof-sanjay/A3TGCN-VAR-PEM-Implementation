@@ -99,6 +99,7 @@ class LocalPEM:
         spectral_norm_bound: float | None = None,
         prior_inclusion: float = 0.5,
         optimizer: str = "SLSQP",
+        eta: np.ndarray | None = None,
     ) -> None:
 
         if not 0.0 < prior_inclusion < 1.0:
@@ -108,6 +109,12 @@ class LocalPEM:
 
         self.units = units
         self.prior_inclusion = float(prior_inclusion)
+
+        # Optional informative prior: a symmetric eta over ALL residual
+        # variables (e.g. causal.pem_prior.road_prior_eta). Each unit
+        # then uses eta[nodes, nodes] instead of the uniform
+        # prior_inclusion.
+        self.eta = None if eta is None else PEM._validate_eta(eta)
         self.optimizer = optimizer
 
         self.nu0 = nu0
@@ -176,13 +183,15 @@ class LocalPEM:
     def _run_pem(
         self,
         local_residuals: np.ndarray,
+        nodes: np.ndarray,
     ):
         """
         Run the existing PEM implementation on one local unit.
 
-        A uniform prior eta = prior_inclusion (default 0.5) is used
-        here because this class is the local PEM execution layer. Construction of informative
-        eta values is kept separate.
+        Without an informative prior, a uniform eta = prior_inclusion
+        (default 0.5) is used. With self.eta, the unit's sub-matrix
+        eta[nodes, nodes] is used. Construction of informative eta
+        values is kept separate (causal/pem_prior.py).
 
         Returns
         -------
@@ -198,11 +207,14 @@ class LocalPEM:
 
         num_variables = local_residuals.shape[1]
 
-        eta = np.full(
-            (num_variables, num_variables),
-            self.prior_inclusion,
-            dtype=np.float64,
-        )
+        if self.eta is None:
+            eta = np.full(
+                (num_variables, num_variables),
+                self.prior_inclusion,
+                dtype=np.float64,
+            )
+        else:
+            eta = self.eta[np.ix_(nodes, nodes)].copy()
 
         np.fill_diagonal(
             eta,
@@ -259,6 +271,12 @@ class LocalPEM:
         )
 
         num_nodes = residuals.shape[1]
+
+        if self.eta is not None and self.eta.shape != (num_nodes, num_nodes):
+            raise ValueError(
+                "eta must have shape (num_nodes, num_nodes) of the "
+                "residual matrix."
+            )
 
         # --------------------------------------------------------------
         # Global symmetric inclusion probabilities
@@ -391,7 +409,8 @@ class LocalPEM:
             try:
 
                 pem_result = self._run_pem(
-                    local_residuals
+                    local_residuals,
+                    nodes,
                 )
 
             except Exception as exc:

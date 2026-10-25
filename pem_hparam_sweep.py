@@ -30,13 +30,20 @@ from pathlib import Path
 
 import numpy as np
 
+from config.config import (
+    PEM_PRIOR,
+    PEM_PRIOR_HIGH,
+    PEM_PRIOR_LOW,
+    PEM_STANDARDISE,
+)
+
 
 IMPLEMENTATION_DIR = Path(__file__).resolve().parent
 
 PEM_ROOT = IMPLEMENTATION_DIR / "outputs" / "pem"
 
 
-def run(var_run, setting, sample_units, seed, workers, rows=None):
+def run(var_run, setting, sample_units, seed, workers, rows=None, extra=()):
 
     command = [
         sys.executable, str(IMPLEMENTATION_DIR / "run_local_pem.py"),
@@ -52,6 +59,8 @@ def run(var_run, setting, sample_units, seed, workers, rows=None):
 
     if rows is not None:
         command += ["--row-start", str(rows[0]), "--row-end", str(rows[1])]
+
+    command += list(extra)
 
     output = subprocess.run(
         command,
@@ -126,7 +135,27 @@ def main():
     parser.add_argument("--threshold", type=float, nargs="+",
                         default=[0.5])
     parser.add_argument("--train-rows", type=int, default=84_096)
+    # Passed through to run_local_pem.py (defaults = original runs).
+    parser.add_argument("--standardise", default=PEM_STANDARDISE,
+                        action=argparse.BooleanOptionalAction)
+    parser.add_argument("--prior", default=PEM_PRIOR, choices=["uniform", "road"])
+    parser.add_argument("--prior-high", type=float, default=PEM_PRIOR_HIGH)
+    parser.add_argument("--prior-low", type=float, default=PEM_PRIOR_LOW)
     args = parser.parse_args()
+
+    # Always passed explicitly, so the child run uses exactly these.
+    extra = ["--prior", args.prior]
+    suffix = ""
+    if args.prior == "road":
+        extra += ["--prior-high", f"{args.prior_high:g}",
+                  "--prior-low", f"{args.prior_low:g}"]
+        suffix += f"__road{args.prior_high:g}-{args.prior_low:g}"
+    extra.append("--standardise" if args.standardise else "--no-standardise")
+    if args.standardise:
+        suffix += "__std"
+
+    # The original sweep keeps its file name; new variants get their own.
+    sweep_file = PEM_ROOT / f"sweep_stage_a{suffix}.json"
 
     half = args.train_rows // 2
 
@@ -149,11 +178,12 @@ def main():
         }
 
         full_dir = run(args.var_run, setting, args.sample_units,
-                       args.seed, args.workers)
+                       args.seed, args.workers, extra=extra)
         h1_dir = run(args.var_run, setting, args.sample_units,
-                     args.seed, args.workers, rows=(0, half))
+                     args.seed, args.workers, rows=(0, half), extra=extra)
         h2_dir = run(args.var_run, setting, args.sample_units,
-                     args.seed, args.workers, rows=(half, args.train_rows))
+                     args.seed, args.workers, rows=(half, args.train_rows),
+                     extra=extra)
 
         edges, summary, sizes, counts, seconds = directed_edges(full_dir)
         edges_h1, *_ = directed_edges(h1_dir)
@@ -161,6 +191,8 @@ def main():
 
         record = {
             **setting,
+            "prior": args.prior,
+            "standardise": args.standardise,
             "units": int(len(sizes)),
             "failed_units": len(summary["failed_units"]),
             "local_density": summary["local_edge_density"],
@@ -184,10 +216,10 @@ def main():
               f"{record['edges_half1']:8d} {record['edges_half2']:8d}",
               flush=True)
 
-        with open(PEM_ROOT / "sweep_stage_a.json", "w", encoding="utf-8") as f:
+        with open(sweep_file, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2)
 
-    print(f"\nSaved: {PEM_ROOT / 'sweep_stage_a.json'}")
+    print(f"\nSaved: {sweep_file}")
 
 
 if __name__ == "__main__":
