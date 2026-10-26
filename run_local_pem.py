@@ -279,6 +279,8 @@ def run_unit(
     status = "ok"
     message = ""
     slsqp_retries = 0
+    lbfgs_restarts = 0
+    accepted_stalled = 0
 
     try:
 
@@ -290,6 +292,8 @@ def run_unit(
         result = local_pem.fit(local_residuals)
 
         slsqp_retries = int(getattr(local_pem, "slsqp_retries", 0))
+        lbfgs_restarts = int(getattr(local_pem, "lbfgs_restarts", 0))
+        accepted_stalled = int(getattr(local_pem, "accepted_stalled", 0))
 
         probabilities = result.global_inclusion_probabilities
         adjacency = result.global_adjacency
@@ -326,6 +330,8 @@ def run_unit(
         complete_rows=complete_rows,
         seconds=seconds,
         slsqp_retries=slsqp_retries,
+        lbfgs_restarts=lbfgs_restarts,
+        accepted_stalled=accepted_stalled,
         status=status,
         message=message,
     )

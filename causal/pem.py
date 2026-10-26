@@ -19,6 +19,10 @@ class PEMResult:
 
 
 class PEM:
+
+    # Re-solving after an L-BFGS-B line-search failure (_estimate_precision).
+    LBFGS_RESTARTS = 3
+    SLSQP_MAX_PARAMETERS = 1500
     """
     Probabilistic Edge Modulation (PEM) for Linear Bayesian Networks.
 
@@ -132,8 +136,12 @@ class PEM:
 
         self.optimizer = optimizer
 
-        # Number of L-BFGS-B failures re-solved with SLSQP (reported).
+        # Re-solve counters (reported): L-BFGS-B warm restarts, SLSQP
+        # re-solves, and large problems accepted after the objective
+        # stopped changing.
         self.slsqp_retries = 0
+        self.lbfgs_restarts = 0
+        self.accepted_stalled = 0
 
         self.spectral_norm_bound = (
             None
@@ -993,23 +1001,65 @@ class PEM:
 
         if not result.success and self.optimizer == "L-BFGS-B":
 
-            # L-BFGS-B can stop with a line-search failure. The same
-            # objective is then minimised with the original SLSQP
-            # solver, warm-started at the L-BFGS-B point. The count is
-            # kept so that it can be reported.
-            self.slsqp_retries += 1
+            # L-BFGS-B can stop with a line-search failure. The SAME
+            # objective is then re-solved, in this order (each step is
+            # counted so that it can be reported):
+            #
+            # 1. warm restarts of L-BFGS-B from the point where it
+            #    stopped (fresh curvature memory), up to 3 times;
+            # 2. the original SLSQP solver, warm-started, but only for
+            #    problems with <= SLSQP_MAX_PARAMETERS parameters:
+            #    SLSQP's cost grows with the cube of the parameter count
+            #    and a 90-sensor unit (~4,200 parameters) did not finish
+            #    in 8 hours (2026-10-26);
+            # 3. for larger problems, the L-BFGS-B point is accepted
+            #    only if the objective changed by no more than the
+            #    tolerance (the same VALUE accuracy SLSQP uses) over the
+            #    last restart, i.e. it has stopped decreasing.
+            # Otherwise the unit fails visibly (RuntimeError below).
+            previous_value = result.fun
+            stalled = False
 
-            result = minimize(
-                objective,
-                result.x,
-                jac=True,
-                method="SLSQP",
-                options={
-                    "maxiter": self.max_iter,
-                    "ftol": self.tolerance,
-                    "disp": False,
-                },
-            )
+            for _ in range(self.LBFGS_RESTARTS):
+
+                self.lbfgs_restarts += 1
+
+                result = minimize(
+                    objective,
+                    result.x,
+                    jac=True,
+                    method="L-BFGS-B",
+                    options=options,
+                )
+
+                if result.success:
+                    break
+
+                stalled = abs(previous_value - result.fun) <= self.tolerance
+                previous_value = result.fun
+
+            if not result.success:
+
+                if len(initial_parameters) <= self.SLSQP_MAX_PARAMETERS:
+
+                    self.slsqp_retries += 1
+
+                    result = minimize(
+                        objective,
+                        result.x,
+                        jac=True,
+                        method="SLSQP",
+                        options={
+                            "maxiter": self.max_iter,
+                            "ftol": self.tolerance,
+                            "disp": False,
+                        },
+                    )
+
+                elif stalled:
+
+                    self.accepted_stalled += 1
+                    result.success = True
 
         if not result.success:
             raise RuntimeError(

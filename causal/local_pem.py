@@ -236,6 +236,8 @@ class LocalPEM:
         result = model.fit(local_residuals)
 
         self.slsqp_retries = getattr(self, "slsqp_retries", 0) + model.slsqp_retries
+        self.lbfgs_restarts = getattr(self, "lbfgs_restarts", 0) + model.lbfgs_restarts
+        self.accepted_stalled = getattr(self, "accepted_stalled", 0) + model.accepted_stalled
 
         return result
 

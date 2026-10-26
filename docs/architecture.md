@@ -327,3 +327,20 @@ To obtain the full-framework result (E5) before the other ablations:
   E6 violet, E7 red); NOGRAPH / HA neutral grey, dashed. Three slots are
   below 3:1 contrast on white, so every figure has visible labels and a
   CSV of its numbers.
+
+## 13. PEM solver fallback amended (D5, 2026-10-26)
+
+Full PEM run with the paper defaults (standardised, nu0 0.0017, nu1 1):
+2,050 units finished (largest 85 sensors, <= 29 min); the 6 largest units
+(77-91 sensors) ran ~8 h each without finishing. Cause: after an L-BFGS-B
+line-search failure, D5 re-solved with SLSQP, whose cost grows with the
+cube of the parameter count (~4,200 for 91 sensors). New order, same
+PEM-MAP objective (`causal/pem.py`, tested in `tests/test_pem_fallback.py`):
+  1. up to 3 warm L-BFGS-B restarts from the stopping point;
+  2. SLSQP only for <= 1,500 parameters (~54 sensors);
+  3. larger problems: the L-BFGS-B point is accepted only if the objective
+     changed by <= the tolerance over the last restart (it has stopped
+     decreasing); otherwise the unit fails visibly.
+Each unit file records lbfgs_restarts / slsqp_retries / accepted_stalled.
+Only the 6 unfinished units were recomputed; the 2,050 finished units
+(2 of them via the old SLSQP retry) were kept.
