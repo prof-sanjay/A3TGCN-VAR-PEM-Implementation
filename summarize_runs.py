@@ -1,11 +1,11 @@
 """
 Combine every run's epoch_metrics.csv and run_summary.json into:
 
-    <out>/all_epoch_metrics.csv    experiment, seed, run, epoch, RMSE, MAE,
+    <out>/all_epoch_metrics.csv    experiment, seed, horizon, run, epoch, RMSE, MAE,
                                    Masked_MAPE, R2, Accuracy, learning_rate, ...
     <out>/best_epoch_summary.csv   one row per run: best epoch, its
                                    validation metrics, final test metrics
-    <out>/multi_seed_summary.csv   per experiment: mean and std of the
+    <out>/multi_seed_summary.csv   per experiment and horizon: mean and std of the
                                    test metrics over seeds (final runs only)
 
 A run is any folder under --results containing run_summary.json.
@@ -65,6 +65,8 @@ def main():
         ids = {
             "experiment": summary["experiment"],
             "seed": summary["seed"],
+            # Forecast horizon in 5-minute steps (1 for runs before Phase 7).
+            "horizon": int((summary.get("config") or {}).get("horizon", 1)),
             "run": run,
         }
 
@@ -107,10 +109,13 @@ def main():
 
         final = best[~best["smoke"] & ~best["selection_only"]]
 
-        for experiment, group in final.groupby("experiment", sort=True):
+        for (experiment, horizon), group in final.groupby(
+            ["experiment", "horizon"], sort=True
+        ):
 
             row = {
                 "experiment": experiment,
+                "horizon": int(horizon),
                 "n_seeds": int(group["seed"].nunique()),
                 "seeds": " ".join(str(s) for s in sorted(group["seed"].unique())),
             }

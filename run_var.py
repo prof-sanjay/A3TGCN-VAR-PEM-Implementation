@@ -1,5 +1,5 @@
 """
-Topology-aware VAR on the LargeST-GBA TRAINING split (E1 / E2).
+Topology-aware VAR on the LargeST-GBA TRAINING split (E1-E7).
 
 Pipeline:
     GBA traffic + road-network adjacency
@@ -24,6 +24,7 @@ Run from the implementation directory (traffic-gpu environment):
 
     python run_var.py --lag 1 --alpha 1e-5
     python run_var.py --lag 1 --alpha 1e4 --save-residuals
+    python run_var.py --candidates corr_k25 --save-residuals      (E6)
 """
 
 import argparse
@@ -34,6 +35,7 @@ from pathlib import Path
 import numpy as np
 
 from config.config import VAR_ALPHA, VAR_LAG, ExperimentConfig
+from causal.candidates import ROAD, candidate_tag, load_candidates
 from data.loader import load_gba_dataset
 from data.splitting import chronological_split
 from data.sensor_filter import cached_duplicate_filter, select_sensors
@@ -61,6 +63,14 @@ def parse_args():
 
     parser.add_argument("--lag", type=int, default=VAR_LAG)
     parser.add_argument("--alpha", type=float, default=VAR_ALPHA)
+
+    parser.add_argument(
+        "--candidates",
+        default=ROAD,
+        help="Candidate links: 'road' (default) or 'corr_k<K>' "
+             "(data-driven, build_candidates.py). Recorded in metadata; "
+             "PEM / LiNGAM runs on this VAR use the same candidates.",
+    )
 
     parser.add_argument(
         "--save-residuals",
@@ -110,7 +120,9 @@ def main() -> None:
     config = ExperimentConfig()
     config.validate()
 
-    output_dir = OUTPUT_ROOT / f"lag{args.lag}_alpha{args.alpha:g}"
+    output_dir = OUTPUT_ROOT / (
+        f"lag{args.lag}_alpha{args.alpha:g}{candidate_tag(args.candidates)}"
+    )
 
     print("=" * 70)
     print("TOPOLOGY-AWARE VAR (TRAINING SPLIT)")
@@ -119,6 +131,7 @@ def main() -> None:
     print("\nConfiguration:")
     print(f"  Traffic file  : {config.traffic_path}")
     print(f"  Adjacency     : {config.adjacency_path}")
+    print(f"  Candidates    : {args.candidates}")
     print(f"  Sensor filter : {config.sensor_filter}")
     print(f"  Lag order     : {args.lag}")
     print(f"  Ridge alpha   : {args.alpha:g}")
@@ -168,6 +181,9 @@ def main() -> None:
 
     train_data = traffic[:train_end]
     val_data = traffic[train_end:val_end]
+
+    # Candidate links (road graph, or data-driven for E6).
+    adjacency = load_candidates(args.candidates, sensors, train_end, adjacency)
 
     load_time = time.perf_counter() - load_start
 
@@ -320,6 +336,7 @@ def main() -> None:
     metadata = {
         "traffic_file": str(config.traffic_path),
         "adjacency_file": str(config.adjacency_path),
+        "candidates": args.candidates,
         "train_rows": [0, train_end],
         "val_rows": [train_end, val_end],
         "train_end": train_end,

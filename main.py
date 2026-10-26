@@ -188,6 +188,16 @@ def load_graph(config, road_adjacency, train_end, sensors):
             f"needs {spec.graph_method!r}."
         )
 
+    if spec.graph_method.endswith("_horizon"):
+
+        graph_horizon = int(files["horizon"]) if "horizon" in files else None
+
+        if graph_horizon != config.horizon:
+            raise ValueError(
+                f"Graph artifact is for horizon {graph_horizon}, "
+                f"but the run forecasts horizon {config.horizon}."
+            )
+
     if orientation != "target_source":
         raise ValueError(
             f"Graph artifact orientation {orientation!r}; expected "
@@ -242,6 +252,7 @@ def predict_dataset(
         config.seq_len,
         config.pre_len,
         config.batch_size,
+        config.horizon - 1,
     ):
 
         feed_dict = {
@@ -338,6 +349,7 @@ def save_test_outputs(
         val_end
         + np.repeat(test_starts, pre_len)
         + config.seq_len
+        + (config.horizon - 1)
         + np.tile(np.arange(pre_len), len(test_starts))
     ).astype(np.int64)
 
@@ -500,6 +512,15 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--horizon",
+        type=int,
+        default=None,
+        help="Forecast this many 5-minute steps ahead (default 1). E5 "
+             "uses the graph of that horizon; other experiments keep "
+             "their graph (the matched no-conditioning comparison).",
+    )
+
+    parser.add_argument(
         "--early-stopping",
         type=int,
         default=None,
@@ -622,9 +643,12 @@ def main():
     if args.early_stopping is not None:
         config.early_stopping_patience = args.early_stopping
 
+    if args.horizon is not None:
+        config.horizon = args.horizon
+
     if previous is not None:
         overridden = [
-            name for name in ("epochs", "learning_rate", "clip_norm", "seed",
+            name for name in ("epochs", "learning_rate", "clip_norm", "seed", "horizon",
                               "early_stopping", "graph", "run_name", "milestones")
             if getattr(args, name) is not None
         ]
@@ -639,7 +663,11 @@ def main():
         run_dir = eval_dir
     else:
         run_dir = Path(config.results_dir) / (
-            args.run_name or f"{config.experiment}/seed_{config.seed}"
+            args.run_name or (
+                f"{config.experiment}/"
+                + ("" if config.horizon == 1 else f"h{config.horizon}/")
+                + f"seed_{config.seed}"
+            )
         )
 
     checkpoint_path = str(run_dir / "checkpoints" / "best_model")
@@ -904,17 +932,18 @@ def main():
     # Without filling this equals "no NaN anywhere in the window".
     # --------------------------------------------------------
 
+    # Target = `horizon` steps after the last input (horizon 1 = next step).
     train_starts = valid_window_starts_from_rows(
         finite_row_mask(train_norm), target_row_ok["train"],
-        config.seq_len, config.pre_len,
+        config.seq_len, config.pre_len, config.horizon - 1,
     )
     val_starts = valid_window_starts_from_rows(
         finite_row_mask(val_norm), target_row_ok["val"],
-        config.seq_len, config.pre_len,
+        config.seq_len, config.pre_len, config.horizon - 1,
     )
     test_starts = valid_window_starts_from_rows(
         finite_row_mask(test_norm), target_row_ok["test"],
-        config.seq_len, config.pre_len,
+        config.seq_len, config.pre_len, config.horizon - 1,
     )
 
     if args.smoke is not None:
@@ -1054,6 +1083,7 @@ def main():
                 config.seq_len,
                 config.pre_len,
                 config.batch_size,
+                config.horizon - 1,
             ):
 
                 feed_dict = {

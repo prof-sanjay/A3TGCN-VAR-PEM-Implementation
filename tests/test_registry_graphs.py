@@ -31,12 +31,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 
 from causal.graph_builders import to_model_orientation
-from config.config import FINAL_GRAPHS, GRAPH_DIR, PEM_RUN, ExperimentConfig
+from config.config import FINAL_GRAPHS, GRAPH_DIR, ExperimentConfig
 from experiments.registry import EXPERIMENTS, artifact_method, get_experiment
 from graph.adjacency import check_model_graph, graph_diagnostics
 
 
 IMPLEMENTATION_DIR = Path(__file__).resolve().parent.parent
+
+OLD_PEM_RUN = "lag3_alpha1e+06__nu0_0.0001_nu1_0.002_tau_0.01_thr_0.5_eta_0.5_L-BFGS-B"
 
 
 def expect_error(error, function, *args, **kwargs):
@@ -50,7 +52,7 @@ def expect_error(error, function, *args, **kwargs):
 def test_registry():
 
     assert sorted(EXPERIMENTS) == [f"E{i}" for i in range(8)] + ["NOGRAPH"]
-    assert {n for n, s in EXPERIMENTS.items() if s.ready} == {"E0", "E1", "E3", "NOGRAPH"}
+    assert {n for n, s in EXPERIMENTS.items() if s.ready} == {"E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "NOGRAPH"}
     assert get_experiment("E3").graph_method == "var_pem"
 
     expect_error(ValueError, get_experiment, "E9")
@@ -65,11 +67,17 @@ def test_registry():
     expect_error(ValueError, ExperimentConfig(experiment="E0", graph_path="x.npz").validate)
     expect_error(ValueError, ExperimentConfig(experiment="NOGRAPH", graph_path="x.npz").validate)
 
-    for name in ("E1", "E3"):
-        config = ExperimentConfig(experiment=name)
-        config.validate()
-        assert Path(config.graph_path) == GRAPH_DIR / FINAL_GRAPHS[name]
-        assert Path(config.graph_path).exists()
+    config = ExperimentConfig(experiment="E1")
+    config.validate()
+    assert Path(config.graph_path) == GRAPH_DIR / FINAL_GRAPHS["E1"]
+    assert Path(config.graph_path).exists()
+
+    # Implemented, but refused with a clear error until the graph is built.
+    for name in ("E2", "E3", "E4", "E6", "E7"):  # E5 needs a horizon (tests/test_horizon_phase7.py)
+        if not (GRAPH_DIR / FINAL_GRAPHS[name]).exists():
+            assert "not found" in expect_error(
+                FileNotFoundError, ExperimentConfig(experiment=name).validate
+            )
 
     print("[PASS] 1. registry E0-E7 + NOGRAPH, unfinished experiments refused, default graphs exist")
 
@@ -151,7 +159,9 @@ def test_load_graph():
     sys.path.insert(0, str(IMPLEMENTATION_DIR.parent))
     from implementation.main import load_graph
 
-    e3 = GRAPH_DIR / FINAL_GRAPHS["E3"]
+    # A fixed E3 artifact (raw-residual PEM run of 2026-10-08) and its
+    # legacy E2__ copy, independent of the PEM setting now in config.py.
+    e3 = GRAPH_DIR / f"E3__{OLD_PEM_RUN}.npz"
 
     with np.load(e3) as artifact:
         sensors = artifact["sensors"]
@@ -159,14 +169,14 @@ def test_load_graph():
 
     road = np.zeros((len(sensors), len(sensors)), dtype=np.float32)
 
-    for name in ("E1", "E3"):
-        config = ExperimentConfig(experiment=name)
+    for name, path in (("E1", GRAPH_DIR / FINAL_GRAPHS["E1"]), ("E3", e3)):
+        config = ExperimentConfig(experiment=name, graph_path=str(path))
         config.validate()
         adjacency, info = load_graph(config, road, train_end, sensors)
         assert info["method"] == get_experiment(name).graph_method
         assert info["statistics"]["num_self_loops"] == 0
 
-    legacy = GRAPH_DIR / f"E2__{PEM_RUN}.npz"
+    legacy = GRAPH_DIR / f"E2__{OLD_PEM_RUN}.npz"
     if legacy.exists():
         config = ExperimentConfig(experiment="E3", graph_path=str(legacy))
         config.validate()

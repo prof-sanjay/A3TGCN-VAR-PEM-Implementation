@@ -82,6 +82,14 @@ class CausalUnitBuilder:
     remove_self_loops:
         Whether diagonal adjacency entries should be ignored when
         identifying topology neighbors.
+    max_reverse_neighbors:
+        Optional cap on the sensors that list the target among their
+        OWN sources (adjacency[:, target] != 0). The target's sources
+        (adjacency[target] != 0) are always kept; only these reverse
+        neighbours are limited to the strongest |adjacency| values.
+        Used for data-driven candidates (E6), where a few "hub" sensors
+        are a top-k neighbour of hundreds of others; road units leave it
+        None (unchanged).
     """
 
     def __init__(
@@ -89,7 +97,13 @@ class CausalUnitBuilder:
         include_self: bool = True,
         max_unit_size: int | None = None,
         remove_self_loops: bool = True,
+        max_reverse_neighbors: int | None = None,
     ) -> None:
+
+        if max_reverse_neighbors is not None and max_reverse_neighbors < 0:
+            raise ValueError("max_reverse_neighbors must be >= 0 or None.")
+
+        self.max_reverse_neighbors = max_reverse_neighbors
 
         if max_unit_size is not None and max_unit_size < 1:
             raise ValueError(
@@ -172,6 +186,19 @@ class CausalUnitBuilder:
             incoming = incoming[
                 incoming != target
             ]
+
+        # ---------------------------------------------------------
+        # Optional cap on reverse neighbours (sensors using the target
+        # as a source); the target's own sources are never dropped.
+        # ---------------------------------------------------------
+
+        if (
+            self.max_reverse_neighbors is not None
+            and len(incoming) > self.max_reverse_neighbors
+        ):
+            strength = np.abs(adjacency[incoming, target])
+            keep = np.argsort(-strength, kind="stable")[: self.max_reverse_neighbors]
+            incoming = np.sort(incoming[keep])
 
         # ---------------------------------------------------------
         # Union of incoming and outgoing neighbors.
@@ -373,6 +400,7 @@ def build_causal_units(
     include_self: bool = True,
     max_unit_size: int | None = None,
     remove_self_loops: bool = True,
+    max_reverse_neighbors: int | None = None,
 ) -> list[CausalUnit]:
     """
     Convenience function for constructing causal units.
@@ -382,6 +410,7 @@ def build_causal_units(
         include_self=include_self,
         max_unit_size=max_unit_size,
         remove_self_loops=remove_self_loops,
+        max_reverse_neighbors=max_reverse_neighbors,
     )
 
     return builder.build(adjacency)

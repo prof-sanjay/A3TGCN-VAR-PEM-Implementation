@@ -78,6 +78,7 @@ from config.config import (
 )
 from causal.causal_units import CausalUnit, build_causal_units
 from causal.local_pem import LocalPEM
+from causal.candidates import load_candidates, unit_options
 from causal.pem_prior import road_prior_eta
 
 
@@ -407,7 +408,15 @@ def main():
         dtype=np.float32,
     )
 
-    units = build_causal_units(adjacency)
+    # Local units from the VAR run's candidate links (road graph unless
+    # the VAR was fitted on data-driven neighbourhoods, E6). The road
+    # prior below always uses the road graph itself.
+    candidates = var_metadata.get("candidates", "road")
+    unit_adjacency = load_candidates(
+        candidates, sensors, var_metadata["train_end"], adjacency
+    )
+
+    units = build_causal_units(unit_adjacency, **unit_options(candidates))
 
     indices = np.arange(len(units))
 
@@ -595,6 +604,7 @@ def main():
 
     summary = {
         "var_run": args.var_run,
+        "candidates": candidates,
         "train_end": var_metadata["train_end"],
         "num_nodes": int(len(sensors)),
         "pem_settings": pem_kwargs,
@@ -658,6 +668,10 @@ def main():
                 sensors=sensors,
                 train_end=var_metadata["train_end"],
                 num_nodes=len(sensors),
+                var_run=args.var_run,
+                candidates=candidates,
+                prior=args.prior,
+                standardise=bool(args.standardise),
             )
 
             summary["aggregated"] = {

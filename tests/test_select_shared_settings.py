@@ -42,7 +42,7 @@ def make_run(root, name, lr, values, milestones=(20,), tested=False):
         str(m): min(range(1, m + 1), key=lambda e: values[e - 1]) for m in milestones
     }
     (run / "results.json").write_text(json.dumps({
-        "config": {"learning_rate": lr},
+        "config": {"learning_rate": lr, "training_epoch": len(values)},
         "milestones": best_until,
         "test_metrics": {"RMSE": 1.0} if tested else "not evaluated (selection run)",
     }), encoding="utf-8")
@@ -53,7 +53,7 @@ def select(*runs, extra=()):
 
     out = Path(runs[0]).parent / "decision.json"
     result = subprocess.run(
-        [sys.executable, str(IMPLEMENTATION_DIR / "select_shared_settings.py"),
+        [sys.executable, str(IMPLEMENTATION_DIR / "selection" / "select_shared_settings.py"),
          *map(str, runs), "--out", str(out), *extra],
         capture_output=True, text=True, cwd=IMPLEMENTATION_DIR,
     )
@@ -107,6 +107,27 @@ def main():
         decision, out = select(tested)
         assert decision is None and "already has test metrics" in out
         print("[PASS] 3. budgets without a checkpoint skipped; tested runs refused")
+
+        # --reference-run: a completed (tested) lr 0.001 / 20-epoch run.
+        ref = make_run(Path(tmp) / "five", "E0_final", 0.001,
+                       [40] * 14 + [30.0] + [31] * 5, milestones=(), tested=True)
+        slight = make_run(Path(tmp) / "five", "lr0005_slight", 0.0005,
+                          [40] * 20 + [29.7] + [33] * 9)          # 1 % better
+        decision, out = select(slight, extra=["--reference-run", str(ref)])
+        assert decision["chosen"]["run"] == str(ref)
+        assert decision["chosen"]["evaluate_command"].startswith("already evaluated")
+
+        clear = make_run(Path(tmp) / "six", "lr0005_clear", 0.0005,
+                         [40] * 20 + [29.0] + [33] * 9)           # 3.3 % better
+        ref6 = make_run(Path(tmp) / "six", "E0_final", 0.001,
+                        [40] * 14 + [30.0] + [31] * 5, milestones=(), tested=True)
+        decision, out = select(clear, extra=["--reference-run", str(ref6)])
+        assert (decision["chosen"]["learning_rate"], decision["chosen"]["epochs"]) == (0.0005, 30)
+
+        wrong = make_run(Path(tmp) / "seven", "not_ref", 0.001, [30.0] * 30, tested=True)
+        decision, out = select(slight, extra=["--reference-run", str(wrong)])
+        assert decision is None and "not a completed" in out
+        print("[PASS] 4. --reference-run: tested reference accepted, 2 % rule applied, wrong runs refused")
 
     print("\nAll tests passed.")
 

@@ -17,11 +17,28 @@ Rule (fixed on 2026-10-25, before any Phase 3 result existed):
 Instability is reported, not used: epochs whose validation RMSE is more
 than 1.5x the run's best.
 
+--reference-run (added 2026-10-26, option (a) chosen by the author):
+an already COMPLETED run at the reference setting (lr 0.001, 20 epochs,
+e.g. the final E0 run) supplies the reference score from its validation
+curve. Its test metrics may exist; they are not read. Run A
+(lr 0.001, 30 epochs) is then not run: the reference curve showed no
+validation improvement after epoch 15 of 20 (documented deviation).
+If the reference is kept, that run already is the E0 result.
+
 The test set is not read. The output names the one command that
 evaluates the chosen run's test set (main.py --evaluate-only).
 
-    python select_shared_settings.py results/E0_lr0.001_30ep results/E0_lr0.0005_30ep
+    python selection/select_shared_settings.py results/E0_lr0.001_30ep results/E0_lr0.0005_30ep
+    python selection/select_shared_settings.py results/kaggle/output_E0_lr0.0005_30ep_sel
+        --reference-run results/kaggle/output_E0_final
 """
+
+import sys
+from pathlib import Path
+
+# Make the implementation folder importable (run from implementation/:
+# python selection/<file>.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import argparse
 import json
@@ -76,16 +93,58 @@ def candidates_of(run_dir: Path, budgets):
         }
 
 
+def reference_of(run_dir: Path):
+    """Reference candidate from a completed lr 0.001 / 20-epoch run."""
+
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    config = results["config"]
+    rows = read_epoch_metrics(run_dir / "epoch_metrics.csv")
+
+    if (abs(float(config["learning_rate"]) - REFERENCE["learning_rate"]) > 1e-12
+            or int(config["training_epoch"]) != REFERENCE["epochs"]
+            or len(rows) != REFERENCE["epochs"]):
+        raise ValueError(f"{run_dir} is not a completed lr 0.001 / 20-epoch run.")
+
+    best = min(rows, key=lambda r: (r["RMSE"], r["epoch"]))
+    run_best = best["RMSE"]
+
+    return {
+        "run": str(run_dir),
+        "learning_rate": REFERENCE["learning_rate"],
+        "epochs": REFERENCE["epochs"],
+        "val_rmse": best["RMSE"],
+        "best_epoch": best["epoch"],
+        "spike_epochs": sum(r["RMSE"] > 1.5 * run_best for r in rows),
+        "stopped_early": results.get("stopped_early"),
+        "checkpoint": "best_model",
+        "evaluate_command": (
+            "already evaluated: this run is the E0 result"
+            if isinstance(results.get("test_metrics"), dict)
+            else f"python -m implementation.main --evaluate-only {run_dir}"
+        ),
+    }
+
+
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("runs", nargs="+")
+    parser.add_argument("runs", nargs="*")
+    parser.add_argument("--reference-run", default=None,
+                        help="Completed lr 0.001 / 20-epoch run used as the reference.")
     parser.add_argument("--budgets", type=int, nargs="+", default=[20, 30])
     parser.add_argument("--margin", type=float, default=0.02)
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
     candidates = [c for run in args.runs for c in candidates_of(Path(run), args.budgets)]
+
+    if args.reference_run:
+        # The reference comes only from --reference-run.
+        candidates = [
+            c for c in candidates
+            if not (abs(c["learning_rate"] - REFERENCE["learning_rate"]) < 1e-12
+                    and c["epochs"] == REFERENCE["epochs"])
+        ] + [reference_of(Path(args.reference_run))]
 
     if not candidates:
         raise SystemExit("No evaluable candidates.")
@@ -130,7 +189,8 @@ def main():
         "reason": reason,
     }
 
-    out = Path(args.out) if args.out else Path(args.runs[0]).parent / "phase3_decision.json"
+    first = args.runs[0] if args.runs else args.reference_run
+    out = Path(args.out) if args.out else Path(first).parent / "phase3_decision.json"
     out.write_text(json.dumps(decision, indent=2), encoding="utf-8")
     print(f"Saved {out}")
 

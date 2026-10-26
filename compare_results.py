@@ -1,8 +1,15 @@
 """
-Compare E0 / E1 / E2 runs: tables, significance tests and figures.
+Compare runs of E0-E7 / NOGRAPH: tables, significance tests and figures.
 
-    python compare_results.py --runs E0=results/E0 E1=results/E1 E2=results/E2
-                              [--out results/comparison]
+    python compare_results.py --runs E0=results/E0 E1=results/E1 E5=results/E5
+                              [--pairs E5:E0 E5:E4] [--out results/comparison]
+
+The FIRST run is the reference: by default every other run is compared
+with it (deltas, significance tests, per-sensor maps); --pairs overrides.
+Runs at different forecast horizons (main.py --horizon) are compared
+only within the same horizon (they score different targets); with
+several horizons each gets its own sub-folder (h1/, h3/, ...) plus
+figures/10_error_by_horizon and tables/error_by_horizon.csv.
 
 Every run folder must come from main.py WITHOUT --selection-only
 (it needs results.json, test_predictions.npz, per_sensor_metrics.csv,
@@ -48,8 +55,22 @@ TEXT_PRIMARY = "#0b0b0b"
 TEXT_SECONDARY = "#52514e"
 GRID = "#e4e3df"
 
-EXPERIMENT_COLORS = {"E0": "#2a78d6", "E1": "#eb6834", "E2": "#1baf7a"}
-FALLBACK_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]
+# Validated 8-slot categorical palette (dataviz reference, light mode),
+# one FIXED slot per experiment, never by rank. Baselines are neutral
+# reference marks, not series. Slots 3-5 are below 3:1 contrast on the
+# surface, so every figure carries visible labels and a CSV table.
+EXPERIMENT_COLORS = {
+    "E0": "#2a78d6",   # blue
+    "E1": "#eb6834",   # orange
+    "E2": "#1baf7a",   # aqua
+    "E3": "#eda100",   # yellow
+    "E4": "#e87ba4",   # magenta
+    "E5": "#008300",   # green
+    "E6": "#6250d6",   # violet
+    "E7": "#e34948",   # red
+}
+BASELINE_COLOR = "#898781"   # NOGRAPH, HA: muted ink, dashed
+FALLBACK_COLORS = list(EXPERIMENT_COLORS.values())
 
 DIVERGING = LinearSegmentedColormap.from_list(
     "better_worse",
@@ -83,9 +104,20 @@ plt.rcParams.update({
 })
 
 
+def experiment_of(label):
+    """'E5@15min' -> 'E5'; labels may carry a horizon suffix."""
+
+    return str(label).split("@")[0]
+
+
 def color_of(label, index):
 
-    return EXPERIMENT_COLORS.get(label, FALLBACK_COLORS[index % 3])
+    experiment = experiment_of(label)
+
+    if experiment in ("NOGRAPH", "HA"):
+        return BASELINE_COLOR
+
+    return EXPERIMENT_COLORS.get(experiment, FALLBACK_COLORS[index % len(FALLBACK_COLORS)])
 
 
 def save_figure(fig, out_dir, name):
@@ -124,6 +156,7 @@ def load_run(label, run_dir):
     return {
         "label": label,
         "dir": run_dir,
+        "horizon": int(results.get("config", {}).get("horizon", 1)),
         "results": results,
         "pred": {key: predictions[key] for key in predictions.files},
         "per_sensor": pd.read_csv(run_dir / "per_sensor_metrics.csv"),
@@ -664,8 +697,175 @@ def pem_stage_a(out_tables, out_figures):
     save_figure(fig, out_figures, "09_pem_stage_a")
 
 
+def figure_error_by_horizon(runs, out_tables, out_figures):
+    """Test RMSE and MAE against the forecast horizon, one line per experiment."""
+
+    rows = [{
+        "experiment": experiment_of(run["label"]),
+        "label": run["label"],
+        "horizon_steps": run["horizon"],
+        "horizon_minutes": 5 * run["horizon"],
+        "RMSE": run["results"]["test_metrics"]["rmse"],
+        "MAE": run["results"]["test_metrics"]["mae"],
+    } for run in runs]
+
+    table = pd.DataFrame(rows).sort_values(["experiment", "horizon_minutes"])
+    table.to_csv(out_tables / "error_by_horizon.csv", index=False)
+
+    # Two panels, one measure each (never two scales on one axis).
+    fig, axes = plt.subplots(1, 2, figsize=(8.8, 3.4), sharex=True)
+
+    groups = list(table.groupby("experiment", sort=False))
+    minutes = sorted(table["horizon_minutes"].unique())
+
+    for ax, metric in zip(axes, ("RMSE", "MAE")):
+
+        ends = []
+
+        for i, (experiment, group) in enumerate(groups):
+
+            color = color_of(experiment, i)
+            dashed = experiment in ("NOGRAPH", "HA")
+            ax.plot(group["horizon_minutes"], group[metric], color=color,
+                    linewidth=2, linestyle="--" if dashed else "-",
+                    marker="o", markersize=5, markeredgecolor=SURFACE,
+                    markeredgewidth=1.5, label=experiment)
+            last = group.iloc[-1]
+            ends.append([last["horizon_minutes"], last[metric], experiment, color])
+
+        ax.set_title(f"Test {metric} (veh / 5 min)")
+        ax.set_xlabel("Forecast horizon (minutes)")
+        ax.set_xticks(minutes)
+        ax.set_ylim(bottom=0)
+        # Room on the right for the end labels.
+        ax.set_xlim(minutes[0] - 3, minutes[-1] + 0.22 * (minutes[-1] - minutes[0] + 1))
+
+        # Direct labels for up to 4 lines, nudged apart so they never overlap.
+        if len(ends) <= 4:
+            low, high = ax.get_ylim()
+            gap = 0.075 * (high - low)
+            ends.sort(key=lambda e: e[1])
+            for k in range(1, len(ends)):
+                ends[k][1] = max(ends[k][1], ends[k - 1][1] + gap)
+            for x, y, text, color in ends:
+                direct_label(ax, x, y, text, color)
+
+    axes[0].legend(loc="upper left")
+    fig.suptitle("Error by forecast horizon (lower is better)",
+                 color=TEXT_PRIMARY, fontsize=11, fontweight="bold")
+    save_figure(fig, out_figures, "10_error_by_horizon")
+
+    return table
+
+
 # ============================================================
 # Main
+# ============================================================
+
+def compare_group(runs, out, pair_args):
+    """Tables and figures for runs that scored the same test targets."""
+
+    check_same_targets(runs)
+
+    labels = [run["label"] for run in runs]
+    runs_by_label = {run["label"]: run for run in runs}
+
+    if pair_args:
+        pairs = [tuple(item.split(":", 1)) for item in pair_args]
+        pairs = [(a, b) for a, b in pairs if a in runs_by_label and b in runs_by_label]
+    else:
+        # Every run against the reference (the first run, normally E0).
+        pairs = [(label, labels[0]) for label in labels[1:]]
+
+    out_tables = out / "tables"
+    out_figures = out / "figures"
+    out_tables.mkdir(parents=True, exist_ok=True)
+    out_figures.mkdir(parents=True, exist_ok=True)
+
+    meta = pd.read_csv(local_path(
+        Path(runs[0]["results"]["config"]["traffic_path"]).with_name("gba_meta.csv"),
+        "gba_meta.csv",
+    ))
+
+    # Tables
+    table = comparison_table(runs)
+    table.to_csv(out_tables / "comparison.csv", index=False)
+    (out_tables / "comparison.md").write_text(
+        markdown_table(table), encoding="utf-8")
+
+    deltas = deltas_table(table, pairs)
+    deltas.to_csv(out_tables / "deltas.csv", index=False)
+
+    breakdown_table(runs).to_csv(out_tables / "breakdown_inputs.csv", index=False)
+
+    significance = significance_table(runs_by_label, pairs)
+    significance.to_csv(out_tables / "significance.csv", index=False)
+
+    graphs, in_degrees = graph_table(runs)
+    graphs.to_csv(out_tables / "graph_comparison.csv", index=False)
+
+    # Figures
+    figure_validation_curves(runs, out_figures)
+    figure_test_metrics(table, out_figures)
+
+    for new, base in pairs:
+        figure_delta_map(runs_by_label, new, base, meta, out_figures)
+
+    if pairs:
+        figure_delta_histogram(runs_by_label, pairs, out_figures)
+    figure_time_of_day(runs, out_figures)
+    figure_example_series(runs, meta, out_figures)
+    figure_in_degree(in_degrees, out_figures)
+
+    print(table.to_string(index=False))
+    print()
+    print(deltas.to_string(index=False))
+    print()
+    print(significance.to_string(index=False))
+    print()
+    print(graphs.to_string(index=False))
+
+    return out_tables, out_figures
+
+
+def main_grouped():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--runs", nargs="+", required=True,
+                        help="LABEL=run_dir; the first run is the reference.")
+    parser.add_argument("--pairs", nargs="*", default=None,
+                        help="NEW:BASE pairs to compare (default: each vs the first run).")
+    parser.add_argument("--out", default=str(IMPLEMENTATION_DIR / "results" / "comparison"))
+    args = parser.parse_args()
+
+    runs = []
+    for item in args.runs:
+        label, directory = item.split("=", 1)
+        runs.append(load_run(label, directory))
+
+    out = Path(args.out)
+    horizons = sorted({run["horizon"] for run in runs})
+
+    for horizon in horizons:
+        group = [run for run in runs if run["horizon"] == horizon]
+        target = out if len(horizons) == 1 else out / f"h{horizon}"
+        print(f"\n=== horizon {horizon} ({5 * horizon} min): {[r['label'] for r in group]}")
+        compare_group(group, target, args.pairs)
+
+    (out / "tables").mkdir(parents=True, exist_ok=True)
+    (out / "figures").mkdir(parents=True, exist_ok=True)
+
+    var_grid(out / "tables", out / "figures")
+    pem_stage_a(out / "tables", out / "figures")
+
+    if len(horizons) > 1:
+        print(figure_error_by_horizon(runs, out / "tables", out / "figures").to_string(index=False))
+
+    print(f"\nSaved tables and figures to {out}")
+
+
+# ============================================================
+# Main (original single-horizon flow, kept for reference)
 # ============================================================
 
 def main():
@@ -745,4 +945,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main_grouped()

@@ -1,5 +1,5 @@
 """
-Phase 5, Stage A: PEM hyperparameter sweep on a sample of causal units.
+Stage A: PEM hyperparameter sweep on a sample of causal units.
 
 Uses TRAINING residuals only (no validation or test data):
 
@@ -14,12 +14,26 @@ Uses TRAINING residuals only (no validation or test data):
             - split-half stability: Jaccard overlap of the directed
               edges found on (b) and (c)
 
-Results: outputs/pem/sweep_stage_a.json and a printed table.
+Settings are either the grid --nu0 x --nu1-ratio, or explicit pairs
+--pairs NU0:NU1 ... (raw and standardised residuals need different
+scales). Results are MERGED into the sweep file (a setting run again
+replaces its old record), so several calls can fill one file.
+
+Results: outputs/pem/sweep_stage_a[__road..][__std].json and a printed
+table. pem_stage_a_report.py adds the direction / road diagnostics and
+applies the selection rule.
 
 Run from the implementation directory (traffic-causal environment):
 
-    python pem_hparam_sweep.py --var-run "lag3_alpha1e+06"
+    python selection/pem_hparam_sweep.py --var-run "lag3_alpha1e+06"
 """
+
+import sys
+from pathlib import Path
+
+# Make the implementation folder importable (run from implementation/:
+# python selection/<file>.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import argparse
 import itertools
@@ -38,7 +52,7 @@ from config.config import (
 )
 
 
-IMPLEMENTATION_DIR = Path(__file__).resolve().parent
+IMPLEMENTATION_DIR = Path(__file__).resolve().parent.parent
 
 PEM_ROOT = IMPLEMENTATION_DIR / "outputs" / "pem"
 
@@ -130,6 +144,9 @@ def main():
                         default=[3e-5, 1e-4, 3e-4])
     parser.add_argument("--nu1-ratio", type=float, nargs="+",
                         default=[20.0, 100.0])
+    parser.add_argument("--pairs", nargs="+", default=None,
+                        metavar="NU0:NU1",
+                        help="Explicit (nu0, nu1) pairs instead of the grid.")
     parser.add_argument("--prior-inclusion", type=float, nargs="+",
                         default=[0.5])
     parser.add_argument("--threshold", type=float, nargs="+",
@@ -159,20 +176,39 @@ def main():
 
     half = args.train_rows // 2
 
-    results = []
+    # Merge with earlier calls that wrote the same file.
+    results = (
+        json.loads(sweep_file.read_text(encoding="utf-8"))
+        if sweep_file.exists() else []
+    )
+
+    def key(record):
+        return (record["nu0"], record["nu1"], record["prior_inclusion"],
+                record["threshold"], record.get("sample_units", args.sample_units),
+                record.get("seed", args.seed))
+
+    if args.pairs:
+        nu_pairs = [tuple(float(v) for v in pair.split(":")) for pair in args.pairs]
+    else:
+        nu_pairs = [(nu0, nu0 * ratio) for nu0, ratio in
+                    itertools.product(args.nu0, args.nu1_ratio)]
+
+    for nu0, nu1 in nu_pairs:
+        if not 0 < nu0 < nu1:
+            raise ValueError(f"need 0 < nu0 < nu1, got {nu0}, {nu1}")
 
     print(f"{'nu0':>8} {'nu1':>8} {'eta':>4} {'thr':>4} | {'density':>8} "
           f"{'edges/unit':>10} {'fail':>4} {'cpu_s':>6} | "
           f"{'split-half J':>12} {'edges h1':>8} {'edges h2':>8}",
           flush=True)
 
-    for nu0, ratio, eta, threshold in itertools.product(
-        args.nu0, args.nu1_ratio, args.prior_inclusion, args.threshold
+    for (nu0, nu1), eta, threshold in itertools.product(
+        nu_pairs, args.prior_inclusion, args.threshold
     ):
 
         setting = {
             "nu0": nu0,
-            "nu1": nu0 * ratio,
+            "nu1": nu1,
             "prior_inclusion": eta,
             "threshold": threshold,
         }
@@ -204,9 +240,12 @@ def main():
             "edges_half2": len(edges_h2),
             "edges_full": len(edges),
             "run_dir": str(full_dir),
+            "half_dirs": [str(h1_dir), str(h2_dir)],
+            "sample_units": args.sample_units,
+            "seed": args.seed,
         }
 
-        results.append(record)
+        results = [r for r in results if key(r) != key(record)] + [record]
 
         print(f"{nu0:8.0e} {setting['nu1']:8.0e} {eta:4.2f} {threshold:4.2f} | "
               f"{record['local_density']:8.4f} "

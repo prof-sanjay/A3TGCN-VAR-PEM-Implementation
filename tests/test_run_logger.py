@@ -214,8 +214,8 @@ def test_summarize_runs(tmp):
     )
 
     all_header = header(out / "all_epoch_metrics.csv")
-    assert all_header[:3] == ["experiment", "seed", "run"]
-    assert all_header[3:10] == REQUIRED
+    assert all_header[:4] == ["experiment", "seed", "horizon", "run"]
+    assert all_header[4:11] == REQUIRED
 
     with open(out / "all_epoch_metrics.csv", encoding="utf-8") as f:
         assert len(list(csv.DictReader(f))) == 10     # 5 runs x 2 epochs

@@ -22,8 +22,13 @@ VAR_RUN = f"lag{VAR_LAG}_alpha{VAR_ALPHA:g}"
 # Local PEM (E2) on the VAR training residuals, uniform prior.
 # Stage B (lr 0.001 + clip 5, 3 epochs): medium nu0/nu1 = 1e-4/2e-3
 # best validation RMSE 48.2 (dense 63.9). Update if Stage B changes.
-PEM_NU0 = 1e-4
-PEM_NU1 = 2e-3
+# 2026-10-26: PEM paper defaults on standardised residuals (nu0 = 0.5 /
+# sqrt(n) ~ 0.0017 for n ~ 84,000, nu1 = 1), one of the two Phase 4
+# shortlisted settings; chosen without Stage B to obtain the full-framework
+# (E5) result first (docs/architecture.md, section 11). Before: raw
+# residuals, nu0 = 1e-4, nu1 = 2e-3 (the old E2 = E3 run).
+PEM_NU0 = 0.0017
+PEM_NU1 = 1.0
 PEM_TAU = 0.01
 PEM_THRESHOLD = 0.5
 PEM_PRIOR_INCLUSION = 0.5      # used when PEM_PRIOR = "uniform"
@@ -40,7 +45,7 @@ PEM_PRIOR_LOW = 0.3
 
 # Standardise residuals per sensor (training mean / std) before PEM.
 # If True, nu0 / nu1 must be re-tuned (precision scale changes).
-PEM_STANDARDISE = False
+PEM_STANDARDISE = True
 
 
 def pem_run_tag(
@@ -79,12 +84,39 @@ def pem_run_tag(
 
 PEM_RUN = pem_run_tag()
 
+# Local VAR-LiNGAM (E2 / E4) on the same VAR's training residuals
+# (run_local_lingam.py). LINGAM_MAX_ROWS = None uses every complete row;
+# set it only if the full rows are computationally infeasible.
+LINGAM_MAX_ROWS = 10000   # split-half check 2026-10-26, docs section 6
+LINGAM_RUN = VAR_RUN + ("" if LINGAM_MAX_ROWS is None else f"__rows{LINGAM_MAX_ROWS}")
+
+# E6: every discovery step on data-driven candidate links (the K most
+# correlated training sensors per sensor, build_candidates.py) instead of
+# the road graph. Folder names follow causal/candidates.candidate_tag().
+CANDIDATES_E6 = "corr_k25"
+VAR_RUN_E6 = f"{VAR_RUN}__cand-{CANDIDATES_E6}"
+LINGAM_RUN_E6 = VAR_RUN_E6 + ("" if LINGAM_MAX_ROWS is None else f"__rows{LINGAM_MAX_ROWS}")
+PEM_RUN_E6 = pem_run_tag(var_run=VAR_RUN_E6)
+
+# E5: horizon graphs keep the K strongest sources per sensor (K = the
+# road graph's mean in-degree, 25.1), so their density matches.
+E5_TOP_K = 25
+
+# E7: E4 with the road prior in PEM.
+PEM_RUN_E7 = pem_run_tag(prior="road")
+
 # Final graph artifact per experiment (built by build_graph.py).
 # Experiment numbering of 2026-10-25 (docs/architecture.md): the former
 # E2 (VAR + PEM) is E3.
 FINAL_GRAPHS = {
     "E1": f"E1__{VAR_RUN}.npz",
+    "E2": f"E2__{LINGAM_RUN}.npz",
     "E3": f"E3__{PEM_RUN}.npz",
+    "E4": f"E4__{LINGAM_RUN}__{PEM_RUN}.npz",
+    # One file per horizon; "{h}" is filled in by ExperimentConfig.validate().
+    "E5": f"E5__h{{h}}__{LINGAM_RUN}__{PEM_RUN}.npz",
+    "E6": f"E6__{LINGAM_RUN_E6}__{PEM_RUN_E6}.npz",
+    "E7": f"E7__{LINGAM_RUN}__{PEM_RUN_E7}.npz",
 }
 
 
@@ -141,6 +173,10 @@ class ExperimentConfig:
     lr_factor: float = 0.5
     lr_min: float = 1e-5
 
+    # Forecast horizon in 5-minute steps (1 = next step, as in every run
+    # so far). Phase 7: 3 / 6 / 12 = 15 / 30 / 60 minutes, pre_len 1.
+    horizon: int = 1
+
     # Early stopping on validation RMSE (None = off: every epoch is run
     # and the best checkpoint is kept, as in all runs so far).
     early_stopping_patience: int | None = None
@@ -175,6 +211,20 @@ class ExperimentConfig:
 
         spec = get_experiment(self.experiment)
 
+        if self.horizon < 1:
+            raise ValueError("horizon must be >= 1.")
+
+        if self.pre_len != 1 and self.horizon != 1:
+            raise ValueError("horizon > 1 is defined for pre_len = 1 only.")
+
+        horizon_specific = spec.graph_method.endswith("_horizon")
+
+        if horizon_specific and self.horizon not in spec.horizons:
+            raise ValueError(
+                f"{self.experiment} has graphs for horizons {spec.horizons}; "
+                f"got horizon {self.horizon}."
+            )
+
         if not spec.ready:
             raise NotImplementedError(
                 f"{self.experiment} ({spec.title}) is not implemented yet: "
@@ -198,8 +248,11 @@ class ExperimentConfig:
                     "pass --graph or add it to FINAL_GRAPHS."
                 )
 
-            # Default: the final graph of the selected method.
-            self.graph_path = str(GRAPH_DIR / FINAL_GRAPHS[self.experiment])
+            # Default: the final graph of the selected method (one file
+            # per horizon for horizon-specific graphs).
+            self.graph_path = str(
+                GRAPH_DIR / FINAL_GRAPHS[self.experiment].format(h=self.horizon)
+            )
 
         if self.graph_path is not None and not Path(self.graph_path).exists():
             raise FileNotFoundError(

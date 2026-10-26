@@ -45,8 +45,7 @@ EXPERIMENTS: dict[str, ExperimentSpec] = {
         ExperimentSpec(
             "E2", "A3T-GCN + VAR-LiNGAM graph",
             graph_method="var_lingam", candidate_links="road neighbours", prior="-",
-            horizons=(1,), ready=False,
-            todo="Phase 5: VAR-LiNGAM graph builder (B_k = (I - B_0) A_k).",
+            horizons=(1,), ready=True,
         ),
         ExperimentSpec(
             "E3", "A3T-GCN + VAR + PEM graph (former E2)",
@@ -56,27 +55,23 @@ EXPERIMENTS: dict[str, ExperimentSpec] = {
         ExperimentSpec(
             "E4", "A3T-GCN + VAR-LiNGAM + PEM graph",
             graph_method="var_lingam_pem", candidate_links="road neighbours", prior="uniform",
-            horizons=(1,), ready=False,
-            todo="Phase 5: VAR-LiNGAM + PEM graph builder.",
+            horizons=(1,), ready=True,
         ),
         ExperimentSpec(
             "E5", "A3T-GCN + horizon-specific VAR-LiNGAM + PEM graphs",
             graph_method="var_lingam_pem_horizon", candidate_links="road neighbours",
-            prior="uniform", horizons=(3, 6, 12), ready=False,
-            todo="Phase 7: multi-horizon windows and horizon graphs.",
+            prior="uniform", horizons=(1, 3, 6, 12), ready=True,
         ),
         ExperimentSpec(
             "E6", "A3T-GCN + VAR-LiNGAM + PEM, data-driven neighbourhoods",
             graph_method="var_lingam_pem_datadriven",
             candidate_links="most-correlated training sensors (no road information)",
-            prior="uniform", horizons=(1,), ready=False,
-            todo="Phase 6: data-driven neighbourhoods.",
+            prior="uniform", horizons=(1,), ready=True,
         ),
         ExperimentSpec(
             "E7", "A3T-GCN + VAR-LiNGAM + PEM with road prior",
             graph_method="var_lingam_pem_roadprior", candidate_links="road neighbours",
-            prior="road (0.7 / 0.3)", horizons=(1,), ready=False,
-            todo="Phase 6: road-prior variant of E4.",
+            prior="road (0.7 / 0.3)", horizons=(1,), ready=True,
         ),
         # Baseline: same model, data and training, but no spatial
         # information. With an all-zero graph A3T-GCN's operator is

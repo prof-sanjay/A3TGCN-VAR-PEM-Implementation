@@ -182,6 +182,7 @@ def valid_window_starts_from_rows(
     target_row_ok: np.ndarray,
     seq_len: int,
     pre_len: int,
+    target_offset: int = 0,
 ) -> np.ndarray:
     """
     Valid window starts when inputs and targets have separate
@@ -191,12 +192,15 @@ def valid_window_starts_from_rows(
             must be True in input_row_ok
             (finite for every sensor AFTER filling)
 
-        target timesteps s + seq_len .. s + seq_len + pre_len - 1
+        target timesteps s + seq_len + target_offset
+                      .. s + seq_len + target_offset + pre_len - 1
             must be True in target_row_ok
             (OBSERVED for every sensor in the original data)
 
-    With input_row_ok == target_row_ok this is identical to
-    valid_window_starts().
+    target_offset = horizon - 1 forecasts `horizon` steps ahead with
+    pre_len = 1 (Phase 7); the rows in between are not used. With
+    target_offset = 0 and input_row_ok == target_row_ok this is
+    identical to valid_window_starts().
     """
 
     input_row_ok = np.asarray(input_row_ok, dtype=bool)
@@ -208,8 +212,11 @@ def valid_window_starts_from_rows(
     if seq_len <= 0 or pre_len <= 0:
         raise ValueError("seq_len and pre_len must be greater than zero.")
 
+    if target_offset < 0:
+        raise ValueError("target_offset must be >= 0.")
+
     num_timesteps = len(input_row_ok)
-    window_length = seq_len + pre_len
+    window_length = seq_len + target_offset + pre_len
 
     if num_timesteps < window_length:
         raise ValueError(
@@ -234,7 +241,7 @@ def valid_window_starts_from_rows(
 
     bad = (
         bad_counts(input_row_ok, 0, seq_len)
-        + bad_counts(target_row_ok, seq_len, pre_len)
+        + bad_counts(target_row_ok, seq_len + target_offset, pre_len)
     )
 
     return np.flatnonzero(bad == 0).astype(np.int64)
@@ -245,6 +252,7 @@ def gather_windows(
     starts: np.ndarray,
     seq_len: int,
     pre_len: int,
+    target_offset: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Gather the windows that begin at the given start indices.
@@ -269,7 +277,9 @@ def gather_windows(
         Input windows with shape [len(starts), seq_len, nodes].
 
     y:
-        Target windows with shape [len(starts), pre_len, nodes].
+        Target windows with shape [len(starts), pre_len, nodes],
+        starting target_offset steps after the last input
+        (target_offset = horizon - 1; 0 = right after the inputs).
     """
 
     starts = np.asarray(
@@ -277,7 +287,10 @@ def gather_windows(
         dtype=np.int64,
     )
 
-    window_length = seq_len + pre_len
+    if target_offset < 0:
+        raise ValueError("target_offset must be >= 0.")
+
+    window_length = seq_len + target_offset + pre_len
 
     if starts.size > 0 and (
         starts.min() < 0
@@ -287,20 +300,25 @@ def gather_windows(
             "Window start index out of range for the supplied data."
         )
 
-    indices = (
+    input_rows = (
         starts[:, None]
-        + np.arange(window_length, dtype=np.int64)[None, :]
+        + np.arange(seq_len, dtype=np.int64)[None, :]
     )
 
-    windows = data[indices]
+    target_rows = (
+        starts[:, None]
+        + seq_len
+        + target_offset
+        + np.arange(pre_len, dtype=np.int64)[None, :]
+    )
 
     X = np.ascontiguousarray(
-        windows[:, :seq_len],
+        data[input_rows],
         dtype=np.float32,
     )
 
     y = np.ascontiguousarray(
-        windows[:, seq_len:],
+        data[target_rows],
         dtype=np.float32,
     )
 
@@ -313,6 +331,7 @@ def iterate_window_batches(
     seq_len: int,
     pre_len: int,
     batch_size: int,
+    target_offset: int = 0,
 ):
     """
     Yield (X, y) batches in the order of ``starts``.
@@ -331,6 +350,7 @@ def iterate_window_batches(
             starts[begin : begin + batch_size],
             seq_len,
             pre_len,
+            target_offset,
         )
 
 
