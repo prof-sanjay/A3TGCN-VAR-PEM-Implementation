@@ -344,3 +344,21 @@ PEM-MAP objective (`causal/pem.py`, tested in `tests/test_pem_fallback.py`):
 Each unit file records lbfgs_restarts / slsqp_retries / accepted_stalled.
 Only the 6 unfinished units were recomputed; the 2,050 finished units
 (2 of them via the old SLSQP retry) were kept.
+
+## 14. Result: full framework E5 vs base E0 (2026-10-27, seed 42, 5 min)
+
+Test (same 5,183 windows x 2,056 sensors): E0 RMSE 29.76 / MAE 19.34;
+E1 28.10 / 18.36; E5 28.17 / 18.47.
+- E5 vs E0: -5.4 % RMSE, -4.5 % MAE; better on 62 % of sensors (Wilcoxon
+  p ~ 1e-33), Diebold-Mariano p < 0.001. Significant improvement.
+- E5 vs E1: tied (+0.2 % RMSE; better on 56 % of sensors, Wilcoxon p ~ 1e-4,
+  but Diebold-Mariano p = 0.15; masked MAPE 11.4 % vs 10.5 %).
+- Training instability: best epoch 4, then validation RMSE 78-112
+  (epochs 6-15), partly recovering to 50.9 by epoch 20. The test score
+  comes from a 4-epoch model, so it likely understates E5.
+- Checked and rejected: graph-scale amplification. The A3T-GCN operator of
+  E5 has spectral radius 1.00 and max row sum 4.2, within the stable
+  graphs' range (E1 2.9, E0 5.5). As with the old E3 seed-42 run, the
+  collapse is an optimisation failure, not a graph construction error.
+- Next: E5 with another seed (7) to test robustness; then horizons.
+Figures: results/reports/E5_vs_E0_E1/, results/reports/graphs/.
