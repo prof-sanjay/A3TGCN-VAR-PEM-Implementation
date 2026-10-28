@@ -111,7 +111,8 @@ PEM_RUN_E7 = pem_run_tag(prior="road")
 FINAL_GRAPHS = {
     "E1": f"E1__{VAR_RUN}.npz",
     "E2": f"E2__{LINGAM_RUN}.npz",
-    "E3": f"E3__{PEM_RUN}.npz",
+    # Amended 2026-10-28 (VAR weights on PEM edges); was f"E3__{PEM_RUN}.npz" (P * D).
+    "E3": f"E3__{VAR_RUN}__{PEM_RUN}.npz",
     "E4": f"E4__{LINGAM_RUN}__{PEM_RUN}.npz",
     # One file per horizon; "{h}" is filled in by ExperimentConfig.validate().
     "E5": f"E5__h{{h}}__{LINGAM_RUN}__{PEM_RUN}.npz",

@@ -48,8 +48,10 @@ EXPERIMENTS: dict[str, ExperimentSpec] = {
             horizons=(1,), ready=True,
         ),
         ExperimentSpec(
-            "E3", "A3T-GCN + VAR + PEM graph (former E2)",
-            graph_method="var_pem", candidate_links="road neighbours", prior="uniform",
+            # Amended 2026-10-28: VAR weights kept on PEM's edges. The former
+            # P * D graph ("var_pem", old E2) is no longer accepted as E3.
+            "E3", "A3T-GCN + VAR graph restricted to PEM edges",
+            graph_method="var_pem_mask", candidate_links="road neighbours", prior="uniform",
             horizons=(1,), ready=True,
         ),
         ExperimentSpec(

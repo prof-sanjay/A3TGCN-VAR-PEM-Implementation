@@ -362,3 +362,24 @@ E1 28.10 / 18.36; E5 28.17 / 18.47.
   collapse is an optimisation failure, not a graph construction error.
 - Next: E5 with another seed (7) to test robustness; then horizons.
 Figures: results/reports/E5_vs_E0_E1/, results/reports/graphs/.
+
+## 15. E3 graph amended: VAR weights on PEM edges (2026-10-28, author-approved)
+
+- First E3 run (P * D, standardised PEM, seed 42): test RMSE 57.17 / MAE 39.66,
+  worse than HA (54.92); validation unstable throughout (spikes to ~140).
+  Kept as a reported result (results/kaggle/output_E3_final).
+- Cause (diagnosed from the graph files): with the paper settings PEM's
+  inclusion probabilities are ~0/1 (85% > 0.99; 87.5% of candidate pairs kept),
+  so P * D is an unweighted graph with 75,885 edges (in-degree up to 132).
+  After A3T-GCN's normalisation a sensor's own signal is a median 3% of its
+  input, versus 11-39% for every graph that trained well (E0 11%, old E3 18%,
+  E2/E4 24%, E1 39%, E5 h1 39%).
+- Amendment: E3 = W * D, the E1 VAR weights W = sum_k |A_k| kept only on the
+  directed PEM-LBN edges D (causal/graph_builders.var_pem_mask_graph, method
+  "var_pem_mask"). E3 now differs from E1 by PEM's edge selection alone:
+  32,873 of E1's 51,686 edges, 65% of the VAR weight, own-signal share 50%.
+  File: E3__lag3_alpha1e+06__lag3_alpha1e+06__nu0_0.0017_..._std.npz.
+  The former P * D files are refused as E3 (method check).
+- Related: E4 = sum|B_k| + P * |B_0| differs from E2 in only 523 of 101,685
+  entries (P ~ 1 on B_0's edges). Decision on running E4 postponed until the
+  amended E3 validates the graph construction.

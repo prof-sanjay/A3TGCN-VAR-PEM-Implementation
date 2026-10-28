@@ -12,9 +12,10 @@ adjacency entry A[i, j] != 0 lets sensor j predict sensor i.
     E0 : road-network adjacency A                     (unchanged)
     E1 : VAR graph    W = sum_k |A_k|, diagonal 0      (decision D1)
     E2 : VAR-LiNGAM   sum_k |B_k| + |B_0|, B_k = (I - B_0) A_k
-    E3 : PEM graph    P * D, diagonal 0                (the former E2:
-         symmetric PEM inclusion probability P times directed PEM-LBN
-         adjacency D)
+    E3 : VAR + PEM    W * D, diagonal 0                (amended
+         2026-10-28: the E1 VAR weights W kept only where the directed
+         PEM-LBN adjacency D has an edge. The former P * D graph (old E2)
+         is pem_graph() below; PEM's P is ~0/1, so P * D is unweighted.)
     E4 : VAR-LiNGAM + PEM   sum_k |B_k| + P * |B_0|
 
 Orientation for the model (decision D2):
@@ -76,6 +77,29 @@ def pem_graph(
     graph = (
         np.asarray(inclusion_probabilities, dtype=np.float64)
         * np.asarray(directed_adjacency, dtype=np.float64)
+    )
+
+    np.fill_diagonal(graph, 0.0)
+
+    return graph.astype(np.float32)
+
+
+def var_pem_mask_graph(
+    coefficients: np.ndarray,
+    directed_adjacency: np.ndarray,
+) -> np.ndarray:
+    """
+    E3 (amended 2026-10-28): W * D with the diagonal removed.
+
+    W: the E1 VAR graph sum_k |A_k| (edge strengths).
+    D: directed PEM-LBN adjacency, D[target, source] = 1 (edge selection).
+
+    PEM only decides which VAR edges are kept; the weights stay the
+    VAR strengths, so E3 differs from E1 by PEM's selection alone.
+    """
+
+    graph = var_graph(coefficients).astype(np.float64) * (
+        np.asarray(directed_adjacency, dtype=np.float64) != 0
     )
 
     np.fill_diagonal(graph, 0.0)

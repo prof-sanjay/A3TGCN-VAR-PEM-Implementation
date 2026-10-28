@@ -3,7 +3,7 @@ Build the graph artifacts read by main.py.
 
     E1:  python build_graph.py E1 [--var-run RUN]                 VAR
     E2:  python build_graph.py E2 [--var-run RUN] [--lingam-run]  VAR-LiNGAM
-    E3:  python build_graph.py E3 [--pem-run RUN]                 VAR + PEM
+    E3:  python build_graph.py E3 [--var-run] [--pem-run RUN]     VAR weights on PEM edges
     E4:  python build_graph.py E4 [--lingam-run] [--pem-run]      VAR-LiNGAM + PEM
     E6:  python build_graph.py E6 --var-run R --lingam-run R --pem-run R
          (E4's formula; every input built on data-driven candidates)
@@ -34,9 +34,9 @@ import numpy as np
 
 from causal.graph_builders import (
     horizon_graphs,
-    pem_graph,
     save_graph_artifact,
     var_graph,
+    var_pem_mask_graph,
     var_lingam_graph,
     var_lingam_pem_graph,
 )
@@ -189,12 +189,15 @@ def main():
         source = args.var_run
 
     elif args.experiment == "E3":
+        var = load_var(args.var_run)
         pem = load_pem(args.pem_run)
         if pem["candidates"] != "road" or pem["prior"] != "uniform":
             raise ValueError("E3 needs PEM on road candidates with a uniform prior.")
-        graph = pem_graph(pem["probabilities"], pem["directed"])
-        sensors, train_end = same_split(pem)
-        source = args.pem_run
+        if pem["var_run"] is not None and pem["var_run"] != args.var_run:
+            raise ValueError(f"PEM was run on VAR {pem['var_run']}, not {args.var_run}.")
+        graph = var_pem_mask_graph(var["coefficients"], pem["directed"])
+        sensors, train_end = same_split(var, pem)
+        source = f"{args.var_run}__{args.pem_run}"
 
     else:
         lingam = load_lingam(args.lingam_run)

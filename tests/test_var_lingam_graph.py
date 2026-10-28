@@ -26,7 +26,9 @@ import tempfile
 import numpy as np
 
 from causal.causal_units import build_causal_units
-from causal.graph_builders import structural_lag_matrices, var_lingam_graph, var_lingam_pem_graph
+from causal.graph_builders import (
+    structural_lag_matrices, var_lingam_graph, var_lingam_pem_graph, var_pem_mask_graph,
+)
 from causal.var_lingam import VARLiNGAM
 from run_local_lingam import aggregate_home_rows, run_unit
 
@@ -51,7 +53,14 @@ def test_formulas():
     no_b0 = np.abs(Bk).sum(axis=0); np.fill_diagonal(no_b0, 0)
     assert np.allclose(var_lingam_pem_graph(A, B0, np.zeros((4, 4))), no_b0, atol=1e-6)
 
-    print("[PASS] 1. B_k = (I - B_0) A_k, E2 / E4 formulas, diagonal 0")
+    # E3 (amended): VAR weights where D has an edge, 0 elsewhere and on the diagonal.
+    D = np.zeros((4, 4)); D[1, 0] = D[2, 3] = D[0, 0] = 1
+    e3 = var_pem_mask_graph(A, D)
+    w = np.abs(A).sum(axis=0)
+    assert np.isclose(e3[1, 0], w[1, 0]) and np.isclose(e3[2, 3], w[2, 3])
+    assert np.count_nonzero(e3) == 2
+
+    print("[PASS] 1. B_k = (I - B_0) A_k, E2 / E3 / E4 formulas, diagonal 0")
 
 
 def simulate(n=20000, seed=1):

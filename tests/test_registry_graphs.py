@@ -13,8 +13,9 @@ Tests for the experiment registry and the graph checks (Phase 2):
        convention.
     5. Orientation: after to_model_orientation + the original A3T-GCN
        normalization, a node aggregates from its SOURCES only.
-    6. main.load_graph on the real E1 / E3 artifacts, the legacy E2
-       file for E3, the no-graph baseline, and a method mismatch.
+    6. main.load_graph on the real E1 / E3 artifacts (E3 amended
+       2026-10-28: VAR weights on PEM edges), refusal of the former
+       P * D files as E3, the no-graph baseline, and a method mismatch.
 
 Run from the implementation directory:
 
@@ -53,7 +54,7 @@ def test_registry():
 
     assert sorted(EXPERIMENTS) == [f"E{i}" for i in range(8)] + ["NOGRAPH"]
     assert {n for n, s in EXPERIMENTS.items() if s.ready} == {"E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "NOGRAPH"}
-    assert get_experiment("E3").graph_method == "var_pem"
+    assert get_experiment("E3").graph_method == "var_pem_mask"     # amended 2026-10-28
 
     expect_error(ValueError, get_experiment, "E9")
 
@@ -159,33 +160,36 @@ def test_load_graph():
     sys.path.insert(0, str(IMPLEMENTATION_DIR.parent))
     from implementation.main import load_graph
 
-    # A fixed E3 artifact (raw-residual PEM run of 2026-10-08) and its
-    # legacy E2__ copy, independent of the PEM setting now in config.py.
-    e3 = GRAPH_DIR / f"E3__{OLD_PEM_RUN}.npz"
+    e1 = GRAPH_DIR / FINAL_GRAPHS["E1"]
+    e3 = GRAPH_DIR / FINAL_GRAPHS["E3"]
 
-    with np.load(e3) as artifact:
+    with np.load(e1) as artifact:
         sensors = artifact["sensors"]
         train_end = int(artifact["train_end"])
 
     road = np.zeros((len(sensors), len(sensors)), dtype=np.float32)
 
-    for name, path in (("E1", GRAPH_DIR / FINAL_GRAPHS["E1"]), ("E3", e3)):
+    graphs = {}
+    for name, path in (("E1", e1), ("E3", e3)):
         config = ExperimentConfig(experiment=name, graph_path=str(path))
         config.validate()
-        adjacency, info = load_graph(config, road, train_end, sensors)
+        graphs[name], info = load_graph(config, road, train_end, sensors)
         assert info["method"] == get_experiment(name).graph_method
         assert info["statistics"]["num_self_loops"] == 0
 
-    legacy = GRAPH_DIR / f"E2__{OLD_PEM_RUN}.npz"
-    if legacy.exists():
-        config = ExperimentConfig(experiment="E3", graph_path=str(legacy))
-        config.validate()
-        old, info = load_graph(config, road, train_end, sensors)
-        assert info["artifact_label"] == "E2" and info["method"] == "var_pem"
-        new, _ = load_graph(ExperimentConfig(experiment="E3", graph_path=str(e3)), road, train_end, sensors)
-        assert np.array_equal(old, new)
+    # E3 (amended) = E1's weights on a subset of E1's edges.
+    kept = graphs["E3"] != 0
+    assert kept.any() and np.allclose(graphs["E3"][kept], graphs["E1"][kept])
+    assert not (graphs["E3"] != 0)[graphs["E1"] == 0].any()
 
-    wrong = ExperimentConfig(experiment="E3", graph_path=str(GRAPH_DIR / FINAL_GRAPHS["E1"]))
+    # The former P * D graphs (old E2 label, and E3 files written before
+    # the amendment) are refused as E3.
+    for old in (GRAPH_DIR / f"E2__{OLD_PEM_RUN}.npz", GRAPH_DIR / f"E3__{OLD_PEM_RUN}.npz"):
+        if old.exists():
+            config = ExperimentConfig(experiment="E3", graph_path=str(old))
+            assert "method" in expect_error(ValueError, load_graph, config, road, train_end, sensors)
+
+    wrong = ExperimentConfig(experiment="E3", graph_path=str(e1))
     assert "method" in expect_error(ValueError, load_graph, wrong, road, train_end, sensors)
 
     expect_error(ValueError, load_graph, ExperimentConfig(experiment="E3", graph_path=str(e3)),
@@ -194,8 +198,8 @@ def test_load_graph():
     adjacency, info = load_graph(ExperimentConfig(experiment="NOGRAPH"), road, train_end, sensors)
     assert info["method"] == "none" and not adjacency.any()
 
-    print("[PASS] 6. load_graph: E1 / E3 artifacts, legacy E2 file as E3, "
-          "method and split mismatches refused")
+    print("[PASS] 6. load_graph: E1 / E3 artifacts, E3 = E1 weights on PEM edges, "
+          "old P * D files and method / split mismatches refused")
 
 
 def main():
