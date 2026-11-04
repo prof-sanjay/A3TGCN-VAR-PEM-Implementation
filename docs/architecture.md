@@ -383,3 +383,98 @@ Figures: results/reports/E5_vs_E0_E1/, results/reports/graphs/.
 - Related: E4 = sum|B_k| + P * |B_0| differs from E2 in only 523 of 101,685
   entries (P ~ 1 on B_0's edges). Decision on running E4 postponed until the
   amended E3 validates the graph construction.
+
+## 16. Result: E2 (VAR-LiNGAM) at 5 min, seed 42 (2026-10-29)
+
+- Test RMSE 32.38 / MAE 21.88, best epoch 14; worse than E0 (29.76) and E1
+  (28.10): better than E1 on only 15% of sensors (DM p < 0.001). Validation
+  unstable (spikes at epochs 6, 8, 11, 15-19; 239 at epoch 19).
+- Adding |B_0| doubles the graph (101,685 edges, in-degree mean 49, max 160,
+  vs E1's 51,686) and lowers the own-signal share from 39% to 24%; B_0 itself
+  is unstable across data halves (split-half Jaccard 0.31, section 6).
+  Across runs so far, denser graphs train worse (E1 / E5 ~50k edges best).
+- E5 uses the same B_0 but keeps only the top-25 sources per horizon and
+  beats E2 on 85% of sensors.
+- Report: results/reports/E2_seed42. First E3 (P * D) output renamed to
+  results/kaggle/output_E3_PxD_final. Next: amended E3 (section 15).
+
+## 17. Result: amended E3 (VAR weights on PEM edges), 5 min, seed 42 (2026-10-29)
+
+- Test RMSE 28.30 / MAE 19.62 / masked MAPE 15.9, best epoch 7. Healthy until
+  epoch 8 (validation 28.5 at epoch 7, close to E1's best 28.37), then
+  validation collapsed (59-115 from epoch 9) and never recovered.
+- vs E1 (28.10 / 18.36): E3 better on only 16% of sensors (DM p 1e-8).
+  vs E0 (29.76 / 19.34): tie (DM p 0.17). E5 beats E3 on 80% of sensors.
+- Reading: the amended graph is sound (the P * D failure is fixed), but
+  restricting the VAR graph to PEM's edges (32,873 of 51,686) does not improve
+  on E1 at 5 min. Caveat: one seed, and the run collapsed after epoch 8.
+- Training collapses at the fixed lr 0.001 now occur in E2, E3 and E5 (seed 42).
+  Correction (2026-11-03): E0 (epochs 2-6) and E1 (epochs 5-8, 16-19) also had
+  validation spikes (history.csv); only NOGRAPH trained smoothly. Report as a
+  limitation of the fixed protocol.
+- Next: 60-min runs (E5, E1, E0 at horizon 12, seed 42). E4 (differs from E2
+  in 1.6% of entries) recommended to be dropped; author's decision pending.
+
+## 18. Result: E5 at 60 min (horizon 12), seed 42 (2026-11-02)
+
+- Test RMSE 48.97 / MAE 32.88 / masked MAPE 20.0; best epoch 20 (last).
+  Validation spiked at epochs 6-9 and recovered after the lr was halved
+  (epoch 10). Windows: 69,504 / 10,449 / 5,172 (target 12 steps ahead).
+- HA scored on the same targets (results/HA_h12): RMSE 54.89 / MAE 33.21.
+  E5 has 11% lower RMSE but the same MAE (DM p 0.67); HA has lower MAE on 69%
+  of sensors and is better at night (00-06 h: HA 17.5 vs E5 21.2), E5 is
+  better 10-24 h. A one-hour input window cannot see the weekly profile HA
+  uses; this is a property of the unchanged A3T-GCN input (seq_len 12).
+- Notebook fix: cell 2b now builds the config with horizon=HORIZON (it printed
+  the h1 file name; the run itself used the h12 graph).
+- E1 / E0 at horizon 12 pending; they decide whether E5's horizon graphs help.
+
+## 19. Result: E1 / E0 at 60 min and E0 seed 7 (2026-11-02)
+
+Horizon 12 (60 min), seed 42, 5,172 test timesteps:
+
+| Run | RMSE | MAE | Best epoch | vs E1 (sensors better) | MAE vs HA (DM p) |
+|-----|------|-----|-----------|------------------------|------------------|
+| E1  | 47.41 | 31.32 | 19 | -     | 0.016 (E1 better) |
+| E5  | 48.97 | 32.88 | 20 | 34%   | 0.67 (tie) |
+| E0  | 49.87 | 33.19 | 15 | 30%   | 0.98 (tie) |
+| HA  | 54.89 | 33.21 | -  | -     | - |
+
+- E1 beats E0 and E5 (DM p < 0.001 for both). E1 is the only model whose MAE
+  beats HA at 60 min. E5's horizon-specific graphs do not help at 60 min either.
+- E1's best epoch is 19 of 20 and the lr was never halved: it may be
+  under-trained at 20 epochs (same budget for all runs, so the comparison holds).
+- Validation spikes: E0 at epochs 3, 12, 18; E1 at epochs 5-7 (recovered).
+
+Horizon 1, seed 7: E0 = 30.13 / 19.33 (best epoch 16; seed 42: 29.76 / 19.34).
+Two-seed means (RMSE): E0 29.94, E1 27.41, E5 27.78. At seed 7, E1 beats E0
+on 93% of sensors and E5 on 78% (DM p < 0.001).
+
+Reading: across both seeds at 5 min and at 60 min, the VAR graph (E1) is the
+best graph; the causal refinements (E2-E5) do not improve on it.
+Reports: results/reports/h12_E0_E1_E5, results/reports/seed7_E0_E1_E5.
+
+## 20. Result: NOGRAPH (5 min) and E1 / E5 at 30 min, seed 42 (2026-11-03)
+
+NOGRAPH (A = 0, so the A3T-GCN operator is the identity: every sensor sees only
+its own history, weights shared), horizon 1: test RMSE 27.58 / MAE 16.87, best
+epoch 20 (last; validation noisy, 26.6-38.4, lr halved twice).
+
+- Beats every seed-42 graph run at 5 min: E0 29.76, E1 28.10, E5 28.17
+  (DM p < 0.001 each; better than E1 on 82% of sensors, E0 on 88%).
+- Largest gain in daytime and at high-flow sensors (MAE 21.8 vs E1 24.4);
+  E1 is better only at night (00-06 h).
+- Consistent with the own-signal-share pattern (section 16): NOGRAPH is the
+  limit (100% own signal). At 5 min the next value is mostly the sensor's own
+  recent flow; graph mixing adds noise.
+- Caveats: one seed; best epoch = last epoch with a noisy validation curve.
+
+Horizon 6 (30 min): E1 37.47 / 23.58 (best epoch 20), E5 39.98 / 25.82 (best
+epoch 15). E1 better on 86% of sensors (DM p < 0.001). Both collapsed several
+times (E5 validation 108-179 at epochs 5-8, 10, 17-19). HA at 30 min
+(results/HA_h6): 54.91 / 33.23; both models beat it (DM p < 1e-19).
+
+Open question: does any graph beat NOGRAPH at 30 / 60 min? (NOGRAPH h6 / h12.)
+Reports: results/reports/NOGRAPH_seed42, results/reports/h6_E1_E5.
+compare_results.py fix: runs without a graph file (NOGRAPH) are skipped in the
+graph table instead of crashing.

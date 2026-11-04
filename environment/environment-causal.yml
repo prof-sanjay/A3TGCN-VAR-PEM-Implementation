@@ -1,0 +1,23 @@
+# traffic-causal (native Windows, CPU only) — causal-discovery side: topology, sparse VAR, LiNGAM, PEM-LBN, IRFs.
+# Deliberately separate from traffic-gpu: lingam 1.13 needs Python >= 3.10, scikit-learn >= 1.6, scipy <= 1.13.1,
+# which conflict with the TF 2.10 pins. No TensorFlow here. The two environments exchange graphs as .npz files.
+name: traffic-causal
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - numpy==1.26.4
+      - scipy==1.13.1
+      - pandas==2.2.3        # < 3: pandas 3 cannot read pems-bay.h5
+      - tables==3.10.1
+      - h5py==3.12.1
+      - scikit-learn==1.6.1
+      - statsmodels==0.14.4
+      - joblib==1.4.2
+      - lingam==1.13.0
+      - matplotlib==3.9.4
+      - pyyaml==6.0.2
+      - psutil==6.1.1
+      - pytest==8.3.5

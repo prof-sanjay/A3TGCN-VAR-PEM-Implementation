@@ -356,6 +356,9 @@ def load_graph_for(run, sensors):
         full = np.load(local_path(graph["path"], "gba_rn_adj.npy"), mmap_mode="r")
         return np.asarray(full[np.ix_(sensors, sensors)], dtype=np.float32)
 
+    if graph["path"] is None:                # NOGRAPH: no graph to compare
+        return None
+
     path = Path(graph["path"])
 
     if not path.exists():

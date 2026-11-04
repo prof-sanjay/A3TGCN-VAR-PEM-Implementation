@@ -1,0 +1,12 @@
+# traffic-gpu (native Windows) — CUDA/cuDNN layer for TensorFlow 2.10.1
+# TF 2.10 is the last TensorFlow release with native-Windows GPU support.
+# Official tested config for tensorflow-2.10.0: Python 3.7-3.10, CUDA 11.2, cuDNN 8.1 (tensorflow.org/install/source#gpu).
+# Python packages are installed afterwards with pip from requirements-gpu.txt (see docs/GPU_ENVIRONMENT.md).
+name: traffic-gpu
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - cudatoolkit=11.2.2
+  - cudnn=8.1.0.77
+  - pip

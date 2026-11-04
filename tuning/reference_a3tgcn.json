@@ -1,0 +1,84 @@
+{
+ "note": "seed 42, best-validation epoch. val_rmse = min validation RMSE over epochs (vehicles per 5 min); test_rmse = test RMSE of that checkpoint. Read from results/kaggle; see docs/architecture.md.",
+ "h1": {
+  "NOGRAPH": {
+   "val_rmse": 26.57,
+   "test_rmse": 27.584,
+   "best_epoch": 20
+  },
+  "E0": {
+   "val_rmse": 29.98,
+   "test_rmse": 29.761,
+   "best_epoch": 15
+  },
+  "E1": {
+   "val_rmse": 28.372,
+   "test_rmse": 28.104,
+   "best_epoch": 15
+  },
+  "E2": {
+   "val_rmse": 32.363,
+   "test_rmse": 32.379,
+   "best_epoch": 14
+  },
+  "E3b": {
+   "val_rmse": 28.517,
+   "test_rmse": 28.3,
+   "best_epoch": 7
+  },
+  "E3a": {
+   "val_rmse": 54.723,
+   "test_rmse": 57.173,
+   "best_epoch": 18
+  },
+  "E5": {
+   "val_rmse": 28.371,
+   "test_rmse": 28.166,
+   "best_epoch": 4
+  },
+  "E7": {
+   "val_rmse": 36.176,
+   "test_rmse": 36.219,
+   "best_epoch": 20
+  }
+ },
+ "h6": {
+  "NOGRAPH": {
+   "val_rmse": 38.737,
+   "test_rmse": 39.458,
+   "best_epoch": 19
+  },
+  "E1": {
+   "val_rmse": 37.119,
+   "test_rmse": 37.471,
+   "best_epoch": 20
+  },
+  "E5": {
+   "val_rmse": 39.71,
+   "test_rmse": 39.978,
+   "best_epoch": 15
+  }
+ },
+ "h12": {
+  "NOGRAPH": {
+   "val_rmse": 43.133,
+   "test_rmse": 43.874,
+   "best_epoch": 20
+  },
+  "E0": {
+   "val_rmse": 48.949,
+   "test_rmse": 49.868,
+   "best_epoch": 15
+  },
+  "E1": {
+   "val_rmse": 46.454,
+   "test_rmse": 47.412,
+   "best_epoch": 19
+  },
+  "E5": {
+   "val_rmse": 48.431,
+   "test_rmse": 48.972,
+   "best_epoch": 20
+  }
+ }
+}

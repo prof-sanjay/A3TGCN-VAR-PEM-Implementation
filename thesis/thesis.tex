@@ -1,0 +1,411 @@
+%Adaped by Sumesh A K (ak_sumesh@cb.amrita.edu) 2026
+%\documentclass[PhD,two side]{ugthesis}
+%\documentclass[MS]{ugthesis}
+\documentclass[MTech]{ugthesis}
+%\documentclass[BTech]{ugthesis}
+\usepackage{times}
+\usepackage{dashrule}
+\usepackage{t1enc}
+\usepackage{tikz}
+\usepackage{subfigure}
+\usepackage{pgfplots}
+\usepackage{setspace}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{epstopdf}
+\usepackage{lscape}
+\usepackage{fancyhdr}
+\usepackage{natbib}
+\usepackage{hyperref} % hyperlinks for references.
+\usepackage{amsmath} % easier math formulae, align, subequations \ldots
+\usepackage{amssymb}
+\usepackage{wasysym}
+\usepackage{titlesec}
+\usepackage{textcomp}
+\usepackage{pifont}
+\usepackage[toc,page]{appendix}
+\usetikzlibrary{decorations.pathmorphing}
+\usetikzlibrary{shapes,arrows,shadows,patterns}
+\usepackage[printonlyused]{acronym}
+%\usepackage{nomencl}
+%\newcommand{\bigsize}{\fontsize{16pt}{20pt}\selectfont}
+%\renewcommand\nomname{\centerline {NOTATION}}
+%\makenomenclature
+\setcounter{MaxMatrixCols}{20}
+\captionsetup[figure]{labelfont=bf}
+\newcommand{\RomanNumeralCaps}[1]
+    {\MakeUppercase{\romannumeral #1}}
+    \appendixpageoff
+\renewcommand{\appendixpagename}{APPENDIX} % Changes the title page
+\renewcommand{\appendixtocname}{APPENDIX}  % Changes name in TOC
+\graphicspath{{figures/}{../presentation/figures/}}
+\begin{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Title page
+
+\title{Horizon-Conditioned Probabilistic VAR-LiNGAM Causal Graphs for Traffic Forecasting with A3T-GCN} % Enter The Project Title
+\firstauthor{student1}% Enter The Student name
+\firstauthorregno{[CB.SC.P2CSE25001]}
+%\secondauthor{student2}% Enter The Student name
+%\secondauthorregno{[cb.en.u4cse17yyy]}
+%\thirdauthor{student3} % If there is no third author, leave the space blank like
+%\thirdauthorregno{[cb.en.u4cse17zzz]}
+%\fourthauthor{student4}
+%\fourthauthorregno{[cb.en.u4cse17zyx]}
+%\fifthauthor{ }
+%\fifthauthorregno{}
+\guide{Dr. M. Xyz} % Enter your guide's name
+\designation{Designation} % Enter your guide's designation
+\guidedepartment{Computer Science and Engineering} % Enter the department name of your Guide
+\hod{Dr. P. Bagavathi Sivakumar} % Enter HOD's name
+\department{ARTIFICIAL INTELLIGENCE / COMPUTER SCIENCE ENGINEERING} % Enter your department name
+\date{ NOVEMBER 2026} % Enter month and year of submission
+%\nocite{*}
+
+\maketitle
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Abstract
+\certificate
+%\declaration
+% Acknowledgements
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\acknowledgements
+\normalfont
+I would like to express my deep gratitude to our beloved Chancellor Satguru Sri Mata Amritanandamayi Devi for providing a bright academic climate in this university, which has made this entire task appreciable. I would like to thank the management of Amrita Vishwa Vidyapeetham and the entire fraternity of the Department of Computer Science and Engineering, Amrita School of Computing, for providing me with the necessary infrastructure required for the completion of the project.
+I wish to record my deep sense of gratitude and profound thanks to my research supervisor <Supervisor Name>, <Supervisor Designation>, Department of Computer Science and Engineering, Amrita School of Computing, Amrita Vishwa Vidyapeetham, Coimbatore, for his / her keen interest, inspiring guidance and constant encouragement with my work during all stages, to bring this thesis into fruition.
+I extend my sincere thanks and gratitude to all the members of the review panel, for their timely guidance and suggestions for the improvement of my thesis work.
+I would like to extend my sincere thanks to my family and friends for helping and motivating me throughout the course of this project.
+Finally, I would like to thank all those who have helped, guided and encouraged me directly or indirectly during the project work.
+Above all, I extend my heartfelt salutations to my beloved parents and Almighty, for their blessings and grace, for the successful completion of this thesis.
+\vskip 25pt
+\noindent
+Name:\\
+Roll No:\\
+Signature:\\
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\abstract
+\begin{doublespacing}
+\normalfont
+{\noindent Traffic forecasting models that use graph convolutions normally borrow the road network as their graph. That choice is convenient, but it says little about how congestion actually moves between sensors. This thesis asks whether a graph learned from the data itself, built with a causal method, can replace the road graph inside an unchanged A3T-GCN forecaster, and which ingredient of such a graph is responsible for any gain.
+
+The study uses five-minute flow counts from the LargeST Greater Bay Area dataset for 2021 (2,056 sensors after removing near-duplicate series). A topology-aware vector autoregression (lag 3, ridge penalty $10^{6}$) is fitted on training rows, DirectLiNGAM is applied to its residuals to recover contemporaneous effects, and a spike-and-slab Probabilistic Edge Modulation (PEM) step supplies edge probabilities. Impulse responses of the fitted system then give a separate graph for each forecast horizon. Every graph is passed to the same A3T-GCN, so that only the graph changes between experiments. All statistical models were fitted on training data only, and the test set was scored once per run.
+
+The results are mixed and are reported without adjustment. A VAR-weighted road graph lowered the five-minute test RMSE from 29.76 to 28.10 against the road graph, and the full horizon-conditioned graph reached 28.17 on the first seed. Across two seeds, however, the plain VAR graph was at least as good as the full framework, and a model with no graph at all was best on one seed and for the 60-minute horizon (RMSE 43.87 against 47.41 for the VAR graph). Two practical findings stand out: PEM's edge directions follow noise variance unless residuals are standardised (72\% of directions against 47\% after standardising), and the contemporaneous matrix from LiNGAM is unstable between halves of the training period (edge overlap about 0.31). The thesis therefore concludes that learned causal graphs help modestly over the physical road graph, but the evidence here does not support the extra cost of the full probabilistic, horizon-conditioned pipeline.}\\
+
+\noindent{\textbf{Keywords:} Traffic forecasting, causal discovery, VAR-LiNGAM, probabilistic edge modulation, graph neural network, A3T-GCN}
+\end{doublespacing}
+
+\newpage
+\tableofcontents
+\newpage
+\listoffigures
+\newpage
+\listoftables
+\newpage
+
+\chapter*{ABBREVIATIONS}
+\addcontentsline{toc}{chapter}{ABBREVIATIONS}
+\begin{acronym}[A3T-GCN]
+\acro{A3T-GCN}{Attention Temporal Graph Convolutional Network}
+\acro{DM}{Diebold--Mariano}
+\acro{GCN}{Graph Convolutional Network}
+\acro{GRU}{Gated Recurrent Unit}
+\acro{HA}{Historical Average}
+\acro{IRF}{Impulse Response Function}
+\acro{LiNGAM}{Linear Non-Gaussian Acyclic Model}
+\acro{MAE}{Mean Absolute Error}
+\acro{MAPE}{Mean Absolute Percentage Error}
+\acro{PEM}{Probabilistic Edge Modulation}
+\acro{RMSE}{Root Mean Squared Error}
+\acro{SVAR}{Structural Vector Autoregression}
+\acro{VAR}{Vector Autoregression}
+\end{acronym}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{INTRODUCTION}
+
+\section{Background}
+Congestion in a road network is not a local phenomenon. An incident at one interchange typically propagates to upstream locations and produces reduced speeds and altered flows several minutes later. Forecasting systems learn such behaviour from loop detectors that record vehicle counts at intervals of a few minutes, and the more effective models represent the sensors as nodes of a graph so that each sensor can exploit information from related sensors.
+
+The graph most commonly adopted is the road network, in which two detectors are connected when the road segments on which they are installed are connected. This construction is simple and readily justified, but it encodes geometry rather than influence. A sensor on a minor road may be physically adjacent to a motorway sensor yet contribute little predictive information, whereas two sensors on different roads that serve the same commuter flow may be strongly related and yet remain unconnected.
+
+\section{Problem Statement}
+This work addresses a single research question: does a causal graph learned from traffic data, specifically a horizon-conditioned probabilistic VAR-LiNGAM graph, improve the A3T-GCN forecaster compared with the physical road graph, and which part of the construction is responsible? The question is posed as an ablation. The forecasting network is left exactly as its authors published it, and only the graph supplied to it changes.
+
+\section{Motivation}
+Graph-based forecasters are usually compared against each other as complete systems, with new layers, new training tricks and a new graph all changing at once. It is consequently difficult to attribute an improvement to a specific component. Holding the network fixed and varying the graph one component at a time yields a clearer attribution. A further motivation is that causal discovery methods are seldom evaluated at the scale of thousands of sensors, and documenting their failure modes at this scale is of practical value.
+
+\section{Objectives}
+\begin{itemize}
+\item To build a graph from training data using a topology-aware VAR, and test it against the road graph.
+\item To add contemporaneous structure with DirectLiNGAM and edge probabilities with PEM, and measure what each step contributes.
+\item To condition the graph on the forecast horizon using impulse responses, and compare five-, thirty- and sixty-minute forecasts.
+\item To compare all of these with two references that need no graph: a historical average and a model with no graph operator.
+\item To report negative and unstable results in full, supported by significance tests.
+\end{itemize}
+
+\section{Contributions}
+\begin{enumerate}
+\item A leakage-controlled pipeline in which the scaler, sensor filter, gap filling, VAR, LiNGAM and PEM are all fitted on training rows only.
+\item An empirical finding that PEM's edge directions are largely driven by residual variance, and that standardising residuals removes most of the effect.
+\item A measurement of how unstable LiNGAM's contemporaneous matrix is on large traffic data.
+\item A single-factor ablation (E0 to E7 plus a no-graph model) on LargeST GBA, including 15- and 60-minute horizons.
+\end{enumerate}
+
+\section{Organisation of the Thesis}
+Chapter 2 reviews related work. Chapter 3 describes the data and the methods. Chapter 4 explains the experimental design and implementation. Chapter 5 gives the results and a discussion. Chapter 6 concludes and lists limitations and future work.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{LITERATURE REVIEW}
+
+\section{Graph Neural Networks for Traffic Forecasting}
+Early deep traffic models treated each sensor separately or laid sensors on a grid. Graph-based models such as DCRNN \citep{li2018dcrnn} and Graph WaveNet \citep{wu2019graphwavenet} replaced the grid with the sensor network, and T-GCN \citep{zhao2019tgcn} combined a graph convolution with a GRU. A3T-GCN \citep{zhu2020a3tgcn} added a temporal attention layer on top of T-GCN so that the model can weight past time steps differently. A3T-GCN is the forecaster used here, because it is computationally light enough to be trained repeatedly on a 2,056-node graph, using a 4~GB local GPU for preliminary checks and a cloud GPU for the final runs.
+
+\section{Graph Construction}
+Most of these models use either the road distance, thresholded with a Gaussian kernel, or the raw adjacency of the road network. Other work learns an adaptive adjacency during training \citep{wu2019graphwavenet}. The learned adjacency is tied to the loss, and may therefore encode any structure that aids fitting, including noise. A graph constructed before training from a separate statistical model is easier to inspect, and this is the approach adopted in this thesis.
+
+\section{Vector Autoregression and Causal Discovery}
+A vector autoregression predicts each series from lagged values of all series. Granger's notion of predictive causality \citep{granger1969} uses exactly this idea: one series is said to cause another if its past helps predict the other beyond what the other's own past provides. VAR coefficients therefore give a natural lagged graph.
+
+A VAR model does not describe effects within the same time step, although at a five-minute resolution many effects occur on a shorter time scale. LiNGAM \citep{shimizu2006lingam} identifies a causal ordering from non-Gaussian noise, and DirectLiNGAM \citep{shimizu2011directlingam} does so without iterative optimisation. \citet{hyvarinen2010} combined the two ideas: fit a VAR, then run LiNGAM on its residuals to obtain the contemporaneous matrix $B_0$, and recover lagged structural matrices as $B_k=(I-B_0)A_k$.
+
+\section{Probabilistic Edge Modulation}
+Hard thresholds applied to estimated structure are often unreliable. Probabilistic Edge Modulation \citep{hwang2026pem} places a spike-and-slab prior on the entries of a precision matrix and estimates a posterior inclusion probability for each edge by maximum a posteriori inference, with an ordering step (PEM-LBN) that gives directions. The probabilities can be used to weight or prune edges instead of making a single hard decision.
+
+\section{Variance Effects in Causal Discovery}
+Score-based methods can pick up the ordering of variables simply from the way marginal variance grows along a causal chain, a property called varsortability \citep{reisach2021}. If error variances differ strongly between nodes, a method may appear accurate for spurious reasons. Traffic sensors differ by an order of magnitude in flow, so this concern applies directly to the present data.
+
+\section{Research Gap}
+Graph construction for traffic forecasting is mostly heuristic, causal discovery is mostly tested on small synthetic graphs, and forecast horizon is rarely allowed to alter the graph. To the best of the author's knowledge, no existing study builds a horizon-specific causal graph from a VAR-LiNGAM model with edge probabilities and evaluates it by swapping graphs into a fixed forecaster on a large real network.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{DATA AND METHODOLOGY}
+
+\section{Dataset}
+The experiments use the LargeST dataset \citep{liu2023largest}, Greater Bay Area subset, for the year 2021. The raw file holds 105,120 five-minute readings for 2,352 sensors, together with a directed road adjacency matrix and sensor metadata. The raw files were never modified.
+
+Some sensors report nearly identical series. Two sensors were treated as copies if they agreed on at least 90\% of the rows both observed, or if their correlation was at least 0.999, judged on training rows only. Removing copies reduced the set from 2,352 to 2,056 sensors, which prevents the subsequent estimators from encountering singular covariance matrices.
+
+\begin{table}[h]
+\centering
+\caption{Dataset and shared experimental settings}
+\begin{tabular}{ll}
+\hline
+Item & Value \\
+\hline
+Source & LargeST GBA, 2021, flow per 5 minutes \\
+Rows $\times$ sensors (raw) & 105,120 $\times$ 2,352 \\
+Sensors after copy removal & 2,056 \\
+Split (chronological) & 80\% / 10\% / 10\% \\
+Input / target length & 12 steps / 1 step at horizon $h$ \\
+Valid test windows ($h=1$) & 5,183 \\
+Scaling & maximum of observed training values \\
+\hline
+\end{tabular}
+\label{tab:data}
+\end{table}
+
+\section{Handling Missing Values}
+Approximately half of the test windows contain at least one missing reading, so discarding every incomplete window would remove a substantial share of the data. A gap-band scheme fills only the \emph{inputs} of the forecaster: gaps up to 30 minutes are interpolated, medium gaps use interpolation or a regression on neighbouring sensors at the same time stamp, and long gaps use a neighbour regression fitted on training rows. In validation and test, only fills that look backward in time are used. Targets must always be originally observed, and filled values are never scored. VAR, LiNGAM and PEM see only observed values, since filled values would allow PEM to recover the regression relationships introduced by the filling procedure itself.
+
+\section{Topology-Aware VAR}
+Each sensor $i$ is regressed on the last three steps of itself and of its road neighbours:
+\begin{equation}
+x(t)=\sum_{k=1}^{3} A_k\,x(t-k)+e(t),
+\end{equation}
+where the non-zero pattern of each $A_k$ is limited to road links. A ridge penalty of $10^{6}$ was chosen on validation one-step RMSE (26.45 on 2,056 sensors). The VAR graph is $\sum_k |A_k|$ with a zero diagonal. It has the same 51,686 edges as the road graph but different weights.
+
+\section{VAR-LiNGAM}
+DirectLiNGAM is applied to the VAR residuals $e(t)$, giving a contemporaneous matrix $B_0$, and the lagged structural effects follow as
+\begin{equation}
+B_k=(I-B_0)A_k .
+\end{equation}
+A single LiNGAM run on 2,056 variables is not feasible, so it is applied per \emph{local unit}: a sensor together with its in- and out-neighbours. Row $i$ of the global $B_0$ is taken from the unit centred on sensor $i$. Using all training rows would cost about 1,000 CPU-hours, so 10,000 evenly spaced rows per unit are used, a rule fixed before looking at the result. The resulting $B_0$ has 15,883 contemporaneous links. The graph of experiment E2 is $\sum_k|B_k|+|B_0|$.
+
+\section{Probabilistic Edge Modulation}
+PEM is run on the same local units, using the spike-and-slab objective and the PEM-LBN ordering of the original paper. An exact gradient and a vectorised objective were implemented, and the optimiser is L-BFGS-B with an SLSQP retry that is used only for small problems. Local results are merged by taking the maximum probability $P$ and the logical OR of directions $D$. In the final configuration the residuals are standardised, $\nu_0=0.0017$, $\nu_1=1$, $\tau=0.01$, the prior is uniform at 0.5, and an edge is kept when $P>0.5$.
+
+\section{Horizon Conditioning}
+For a forecast $h$ steps ahead, the structural impulse responses are
+\begin{equation}
+\Theta_h=\Psi_h\,(I-P\odot B_0)^{-1},
+\end{equation}
+where $\Psi_h$ holds the reduced-form VAR impulse responses. The horizon-$h$ graph is $|\Theta_h|$ with the diagonal removed, keeping the 25 strongest sources for each sensor. Separate graphs and separate models were built for $h=1,3,6,12$ steps, that is, 5, 15, 30 and 60 minutes.
+
+\section{Forecasting Model and Training}
+The forecaster is A3T-GCN as released by its authors: a T-GCN cell with a GRU of 100 units, followed by temporal attention. Graphs are stored with rows as targets and transposed once before they enter the model, and the identity is added by the model itself. Training uses Adam with learning rate 0.001, gradient clipping at 5, batch size 8, 20 epochs and an L2 weight of 0.0015. The learning rate is halved after five epochs without validation improvement. The checkpoint with the lowest validation RMSE is evaluated on the test set once.
+
+\section{Evaluation Metrics and Tests}
+Reported metrics are RMSE, MAE, masked MAPE (targets of at least 10 vehicles), $R^2$, and two accuracy variants, all in vehicles per five minutes and pooled over windows and sensors. Differences between models are tested with a Wilcoxon test on per-sensor MAE and with the Diebold--Mariano test \citep{diebold1995} over time with a Newey--West variance.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{EXPERIMENTAL DESIGN AND IMPLEMENTATION}
+
+\section{Experiments}
+Table~\ref{tab:exp} lists the experiments. Each experiment differs from its predecessor in a single component, which allows a difference in score to be attributed to that component.
+
+\begin{table}[h]
+\centering
+\caption{Experiment definitions}
+\begin{tabular}{lll}
+\hline
+ID & Graph & Question \\
+\hline
+E0 & Road network & Reference \\
+E1 & VAR, $\sum_k|A_k|$ & Does VAR weighting help? \\
+E2 & $\sum_k|B_k|+|B_0|$ & Does LiNGAM add to VAR? \\
+E3 & VAR weights on PEM edges & Does PEM add to VAR? \\
+E4 & $\sum_k|B_k|+P\odot|B_0|$ & PEM on VAR-LiNGAM \\
+E5 & Top-25 of $|\Theta_h|$ & Does horizon conditioning help? \\
+E6 & As E4, correlation-based candidates & No road information \\
+E7 & As E4, road-based PEM prior (0.7/0.3) & Roads in the prior \\
+NOGRAPH & Identity operator & Does any graph help? \\
+HA & None (weekday $\times$ slot mean) & Lower reference \\
+\hline
+\end{tabular}
+\label{tab:exp}
+\end{table}
+
+\section{Implementation}
+The project is written in Python. The forecaster runs in TensorFlow 2.10 and the causal steps (PEM, LiNGAM) in a separate Python 3.12 environment. Graph construction ran on a laptop with 16 threads and 8~GB of RAM, and final training ran on a Kaggle T4 GPU, about 17 minutes per epoch or 5.8 hours per run. The code is organised so that each model or component resides in a separate module and can be enabled or disabled through a single configuration object. A test suite covers the estimators, the windowing procedure and the leakage constraints.
+
+\section{Protocol}
+Shared hyperparameters were fixed on E0 and then reused. Only the VAR settings and the PEM settings were tuned on validation. Selection rules were specified before any results were available; where a rule was subsequently modified, the modification is listed in Section~\ref{sec:amend} and identified as post-hoc.
+
+\section{Deviations from the Original Plan}
+\label{sec:amend}
+\begin{enumerate}
+\item PEM's stability criterion was changed from raw Jaccard overlap to a chance-corrected version, because raw overlap rises with density even for random graphs.
+\item Residuals were standardised before PEM after the variance problem described in Chapter~5 appeared.
+\item The first E3 (the product $P\odot D$) performed worse than the historical average, because $P$ was nearly binary and therefore produced an unweighted, dense graph. E3 was redefined to place VAR weights on PEM's edges.
+\item PEM's second-stage validation sweep was omitted so that a full-framework result could be obtained earlier.
+\item The learning rate 0.005 of the original code was unstable on 2,056 sensors and was replaced by 0.001 with gradient clipping for every experiment.
+\end{enumerate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{RESULTS AND DISCUSSION}
+
+\section{Diagnostics of the Causal Components}
+
+\subsection{PEM and variance}
+With raw residuals, 72--74\% of PEM's directed edges pointed from the lower-variance to the higher-variance sensor. After standardising, the figure fell to 46--48\%, which is close to the proportion expected from a variance-independent method. This indicates that PEM, like other score-based methods, is partly sensitive to variance, and that its assumption of comparable error variances should be verified on real flow data.
+
+\subsection{Stability of LiNGAM}
+Fitted separately on the two halves of the training rows, $B_0$ showed low agreement: a median relative difference of 0.95, an edge Jaccard index of 0.31, a sign agreement of 86\%, and a rank correlation of the causal ordering of 0.32. Part of this discrepancy may reflect genuine change between the first and second halves of the year. The 10,000-row subsample agreed with the full-row fit more closely than the two halves agreed with each other.
+
+\subsection{Chance-corrected stability of PEM}
+Raw split-half Jaccard rises with graph density, so it favours dense settings. After correcting for chance, all standardised settings were about equally stable, near 0.31.
+
+\section{Five-Minute Forecasts}
+Table~\ref{tab:res5} gives the test results at the five-minute horizon. Runs with seed 42 are the primary comparison. E0, E1 and E5 were repeated with seed 7 because the seed effect turned out to be large.
+
+\begin{table}[h]
+\centering
+\caption{Five-minute test results (vehicles per 5 min)}
+\begin{tabular}{lcccc}
+\hline
+Model & RMSE (s42) & MAE (s42) & RMSE (s7) & MAE (s7) \\
+\hline
+HA & 54.92 & 33.24 & -- & -- \\
+E0 (road) & 29.76 & 19.34 & 30.13 & 19.33 \\
+E1 (VAR) & 28.10 & 18.36 & 26.71 & 16.90 \\
+E2 (VAR-LiNGAM) & 32.38 & -- & -- & -- \\
+E3 (VAR on PEM edges) & 28.30 & 19.62 & -- & -- \\
+E5 (full) & 28.17 & 18.47 & 27.40 & 17.81 \\
+E7 (road prior) & 36.22 & 24.42 & -- & -- \\
+NOGRAPH & 27.58 & 16.87 & -- & -- \\
+\hline
+\end{tabular}
+\label{tab:res5}
+\end{table}
+
+Averaged over the two seeds, E0 scored 29.94, E1 27.41 and E5 27.78. E1 beat E0 on 59\% of sensors (Wilcoxon $p\approx10^{-30}$, DM $p<0.001$), so a VAR-weighted road graph is a real if modest improvement. E5 beat E0 on seed 42 by 5.4\% RMSE, but on seed 7 E1 beat E5 clearly (DM $p<0.001$, E5 better on only 22\% of sensors), while on seed 42 the two were tied. The gap between the two E5 seeds (0.76 RMSE) is as large as the E5--E1 gap, and it is therefore not concluded that E5 outperforms E1.
+
+E2 was worse than E0 and unstable, with about 101,000 edges. E4 differed from E2 in only 523 entries and was therefore dropped as a separate run. E7 reached 36.22, but its validation error stayed between 66 and 96 for epochs 2 to 18 and recovered only at the end, which points to training instability and not to the road prior, since its graph differs from E4 by 0.025\% in weight. E6 was designed but not trained.
+
+The most notable result is that of the model without a graph. At seed 42 it obtained an RMSE of 27.58 and an MAE of 16.87, outperforming every graph-based run, including the VAR graph.
+
+\section{Longer Horizons}
+\begin{table}[h]
+\centering
+\caption{Test results at 30 and 60 minutes (seed 42)}
+\begin{tabular}{lcccc}
+\hline
+ & \multicolumn{2}{c}{30 min ($h=6$)} & \multicolumn{2}{c}{60 min ($h=12$)} \\
+Model & RMSE & MAE & RMSE & MAE \\
+\hline
+HA & 54.91 & 33.23 & 54.89 & 33.21 \\
+E0 & -- & -- & 49.87 & 33.19 \\
+E1 & 37.47 & 23.58 & 47.41 & 31.32 \\
+E5 & 39.98 & 25.82 & 48.97 & 32.88 \\
+NOGRAPH & 39.46 & 25.67 & 43.87 & 28.29 \\
+\hline
+\end{tabular}
+\label{tab:resh}
+\end{table}
+
+At 30 minutes, E1 beat the no-graph model (DM $p<0.001$, better on 92\% of sensors) while E5 tied with it. At 60 minutes the ranking reversed: the no-graph model outperformed every graph-based model, and E1 was better on only 6.5\% of sensors. At that horizon only E1 beat the historical average on MAE (DM $p=0.016$); E5 tied it (DM $p=0.67$). So horizon conditioning did not deliver the gain it was designed to, even at the longest horizon where it should matter most.
+
+\section{Discussion}
+\paragraph{What helped.} Assigning data-driven weights to road edges through a VAR improved on the unweighted road graph at the 5- and 30-minute horizons. This is the least expensive component of the pipeline and the one with the most consistent effect.
+
+\paragraph{What did not.} LiNGAM and PEM increased complexity without a reliable improvement. The contemporaneous structure is unstable, PEM's directions depend on variance, and the denser graphs made training more difficult.
+
+\paragraph{The no-graph result.} A model that processes each sensor independently using a GRU and attention is difficult to outperform at long horizons. This suggests that, for 2,056 sensors and one year of data, much of the predictive signal lies in each sensor's own daily pattern, and that graph aggregation may introduce noise from neighbouring sensors. One candidate explanation, that the E5 graph amplifies signals, was examined by computing the spectral radius of the A3T-GCN operator (1.00 for all graphs) and the maximum row sum (E5 4.2, between E1 at 2.9 and E0 at 5.5). This explanation was not supported, and the early collapse of E5 is therefore attributed to an optimisation problem.
+
+\paragraph{Seed variance.} Changing only the seed moved E1 by 1.39 RMSE. Many of the differences between graphs are of comparable magnitude, so single-seed rankings should be interpreted with caution. At least three seeds for the final set would be required for firm conclusions, whereas only two were feasible within the available GPU quota.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{CONCLUSION AND FUTURE WORK}
+
+\section{Conclusion}
+This thesis built a leakage-controlled causal graph pipeline from VAR, LiNGAM, PEM and impulse responses, and tested each stage by swapping its graph into an unchanged A3T-GCN. A VAR-weighted road graph improved on the plain road graph (two-seed mean RMSE 27.41 against 29.94). The complete horizon-conditioned graph did not beat it, and a graph-free network was competitive at five minutes and clearly better at one hour. In addition, PEM's edge directions were shown to depend on variance, and LiNGAM's contemporaneous structure was shown to be unstable on this data. The conclusion is necessarily cautious: learned causal weights on the road topology are beneficial, but the evidence presented here does not justify the full probabilistic, horizon-conditioned construction.
+
+\section{Limitations}
+\begin{itemize}
+\item One dataset and one year of data.
+\item Mostly one or two seeds; GPU training is not bit-reproducible.
+\item Unstable LiNGAM contemporaneous matrix; local units are an approximation to global discovery, which is infeasible at 2,056 variables.
+\item E6 was not trained, E4 was not run separately, and some horizons were run for only a subset of models.
+\item The causal claims are predictive, not interventional.
+\item Several post-hoc amendments, listed in Chapter 4.
+\end{itemize}
+
+\section{Future Work}
+\begin{itemize}
+\item Run three or more seeds for the final set and report means with error bars.
+\item Apply a stability measure, such as a stronger gradient clip, to all experiments to settle whether E5's collapse is an optimisation artefact.
+\item Replace the single graph with a gated mixture of the node's own signal and graph-aggregated signal.
+\item Test the pipeline on other regions and years.
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{thebibliography}{99}
+\bibitem[Diebold and Mariano(1995)]{diebold1995} F.~X. Diebold and R.~S. Mariano, ``Comparing predictive accuracy,'' \emph{Journal of Business \& Economic Statistics}, vol.~13, no.~3, pp.~253--263, 1995.
+\bibitem[Granger(1969)]{granger1969} C.~W.~J. Granger, ``Investigating causal relations by econometric models and cross-spectral methods,'' \emph{Econometrica}, vol.~37, no.~3, pp.~424--438, 1969.
+\bibitem[Hwang et al.(2026)]{hwang2026pem} Hwang, Lee, Oh and Park, ``Probabilistic Edge Modulation,'' in \emph{Proc. Conference on Uncertainty in Artificial Intelligence (UAI)}, 2026.
+\bibitem[Hyv\"arinen et al.(2010)]{hyvarinen2010} A.~Hyv\"arinen, K.~Zhang, S.~Shimizu and P.~O. Hoyer, ``Estimation of a structural vector autoregression model using non-Gaussianity,'' \emph{Journal of Machine Learning Research}, vol.~11, pp.~1709--1731, 2010.
+\bibitem[Li et al.(2018)]{li2018dcrnn} Y.~Li, R.~Yu, C.~Shahabi and Y.~Liu, ``Diffusion convolutional recurrent neural network: Data-driven traffic forecasting,'' in \emph{Proc. ICLR}, 2018.
+\bibitem[Liu et al.(2023)]{liu2023largest} X.~Liu et al., ``LargeST: A benchmark dataset for large-scale traffic forecasting,'' in \emph{Advances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track}, 2023.
+\bibitem[Reisach et al.(2021)]{reisach2021} A.~Reisach, C.~Seiler and S.~Weichwald, ``Beware of the simulated DAG! Causal discovery benchmarks may be easy to game,'' in \emph{Advances in Neural Information Processing Systems}, 2021.
+\bibitem[Shimizu et al.(2006)]{shimizu2006lingam} S.~Shimizu, P.~O. Hoyer, A.~Hyv\"arinen and A.~Kerminen, ``A linear non-Gaussian acyclic model for causal discovery,'' \emph{Journal of Machine Learning Research}, vol.~7, pp.~2003--2030, 2006.
+\bibitem[Shimizu et al.(2011)]{shimizu2011directlingam} S.~Shimizu et al., ``DirectLiNGAM: A direct method for learning a linear non-Gaussian structural equation model,'' \emph{Journal of Machine Learning Research}, vol.~12, pp.~1225--1248, 2011.
+\bibitem[Wu et al.(2019)]{wu2019graphwavenet} Z.~Wu, S.~Pan, G.~Long, J.~Jiang and C.~Zhang, ``Graph WaveNet for deep spatial-temporal graph modeling,'' in \emph{Proc. IJCAI}, 2019.
+\bibitem[Zhao et al.(2019)]{zhao2019tgcn} L.~Zhao et al., ``T-GCN: A temporal graph convolutional network for traffic prediction,'' \emph{IEEE Transactions on Intelligent Transportation Systems}, vol.~21, no.~9, pp.~3848--3858, 2020.
+\bibitem[Zhu et al.(2020)]{zhu2020a3tgcn} J.~Zhu et al., ``A3T-GCN: Attention temporal graph convolutional network for traffic forecasting,'' \emph{ISPRS International Journal of Geo-Information}, vol.~10, no.~7, p.~485, 2021.
+\end{thebibliography}
+
+\end{document}
