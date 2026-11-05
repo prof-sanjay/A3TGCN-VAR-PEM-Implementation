@@ -75,6 +75,19 @@ EXPERIMENTS: dict[str, ExperimentSpec] = {
             graph_method="var_lingam_pem_roadprior", candidate_links="road neighbours",
             prior="road (0.7 / 0.3)", horizons=(1,), ready=True,
         ),
+        # E8 (2026-11-05): horizon graphs from the VAR impulse responses weighted
+        # by PEM's P, WITHOUT DirectLiNGAM / B0: S_h = P * |Psi_h| (causal/var_pem_horizon.py).
+        ExperimentSpec(
+            "E8", "A3T-GCN + horizon-specific VAR-PEM graphs (no LiNGAM)",
+            graph_method="var_pem_horizon", candidate_links="road neighbours",
+            prior="uniform", horizons=(1, 3, 6, 12), ready=True,
+        ),
+        # E8V: the ablation that isolates PEM in E8: S_h = |Psi_h| (no P, no B0).
+        ExperimentSpec(
+            "E8V", "A3T-GCN + horizon-specific VAR impulse-response graphs (no LiNGAM, no PEM)",
+            graph_method="var_horizon", candidate_links="road neighbours",
+            prior="-", horizons=(1, 3, 6, 12), ready=True,
+        ),
         # Baseline: same model, data and training, but no spatial
         # information. With an all-zero graph A3T-GCN's operator is
         # D^-1/2 (0 + I) D^-1/2 = I, so every sensor is a GRU with

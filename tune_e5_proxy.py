@@ -9,6 +9,12 @@ Stages (all use only training rows to fit and validation rows to score):
                  are scored by the proxy and compared (Spearman). A low
                  agreement means the proxy cannot be used to tune.
     k            K sweep: top-K sources per sensor of the E5 effect matrix.
+    b0           Stage A, experiments A0-A7: how much of B0 should be kept?
+                 Only B0's contribution changes (VAR coefficients, K = 25 and
+                 P are fixed): A0 B0 = 0, A1-A4 scale 0.25 / 0.5 / 0.75 / 1.0
+                 (A4 = E5), A5-A7 remove the weakest 25 / 50 / 75 % of B0's
+                 non-zero coefficients. --save-graphs writes chosen variants
+                 as E5 graph artifacts for A3T-GCN.
     roles        What do LiNGAM's B0 and PEM's P add to the VAR? B0~ = 0
                  (VAR only), B0, P*B0 (E5), hard-thresholded P, B0 cut-offs.
     extras       Extra PEM / LiNGAM results (different nu0 / nu1 / eta /
@@ -101,7 +107,23 @@ def row_of(label, graph_info, horizons, **extra):
     for h in horizons:
         row[f"val_rmse_h{h}"] = round(graph_info[h]["rmse"], 3)
         row[f"val_mae_h{h}"] = round(graph_info[h]["mae"], 3)
+        row[f"sep_rmse_h{h}"] = round(graph_info[h]["separable_rmse"], 3)
     return row
+
+
+def save_artifact(path, graph, **fields):
+    """
+    Same fields as causal.graph_builders.save_graph_artifact (read by
+    main.load_graph), but compressed: these graphs are mostly zeros, so a
+    16.9 MB file becomes well under 1 MB.
+    """
+    np.savez_compressed(
+        path,
+        adjacency=np.asarray(graph, dtype=np.float32),
+        num_nodes=int(graph.shape[0]),
+        orientation="target_source",
+        **fields,
+    )
 
 
 def e5_graphs(effects, k, horizons):
@@ -136,7 +158,9 @@ def main():
     parser.add_argument("--out", default=str(IMPLEMENTATION_DIR / "results" / "tuning" / "phaseA"))
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 6, 12])
     parser.add_argument("--k-list", type=int, nargs="+", default=[5, 10, 15, 25, 40, 60, 100])
-    parser.add_argument("--stages", nargs="+", default=["calibration", "k", "roles", "extras"])
+    parser.add_argument("--stages", nargs="+", default=["calibration", "b0", "k", "roles", "extras"])
+    parser.add_argument("--save-graphs", nargs="*", default=[],
+                        help="stage-b0 experiment ids (A0 ... A7) to save as E5 graph artifacts, one per horizon.")
     parser.add_argument("--stride-train", type=int, default=4)
     parser.add_argument("--stride-val", type=int, default=2)
     parser.add_argument("--max-sensors", type=int, default=None, help="smoke test only.")
@@ -227,16 +251,22 @@ def main():
             "E3b": var_pem_mask_graph(coefficients, pem["d"]),
             "E4": var_lingam_pem_graph(coefficients, b0, pem["p"]),
         }
-        rows, proxy_val = [], {}
+        rows, proxy_val, proxy_sep = [], {}, {}
+
+        def remember(name, info):
+            proxy_val[name] = {h: info[h]["rmse"] for h in horizons}
+            proxy_sep[name] = {h: info[h]["separable_rmse"] for h in horizons}
+
         for name, g in graphs.items():
             info = proxy.evaluate(g, horizons, args.stride_train, args.stride_val)
             rows.append(row_of(name, info, horizons))
-            proxy_val[name] = {h: info[h]["rmse"] for h in horizons}
+            remember(name, info)
             log(f"  {name:8s} edges {info['edges']:8d} own {info['own_signal_share']:.3f} "
-                + " ".join(f"h{h}:{info[h]['rmse']:.2f}" for h in horizons))
+                + " ".join(f"h{h}:{info[h]['rmse']:.1f}/{info[h]['separable_rmse']:.1f}" for h in horizons)
+                + "   (mixed/separable)")
         info = score_per_horizon(proxy, base_graphs, horizons, args)
         rows.append(row_of("E5 (per-horizon graph)", info, horizons))
-        proxy_val["E5"] = {h: info[h]["rmse"] for h in horizons}
+        remember("E5", info)
 
         for extra in args.pem_extra:
             p = load_pem(extra, all_sensors)
@@ -244,7 +274,7 @@ def main():
                 g = var_lingam_pem_graph(coefficients, b0, fit(p["p"]))
                 inf = proxy.evaluate(g, horizons, args.stride_train, args.stride_val)
                 rows.append(row_of("E7 (road prior)", inf, horizons))
-                proxy_val["E7"] = {h: inf[h]["rmse"] for h in horizons}
+                remember("E7", inf)
 
         write_csv(out / "calibration_proxy.csv", rows)
 
@@ -256,19 +286,92 @@ def main():
             if len(names) < 3:
                 continue
             a = [ref[k]["val_rmse"] for k in names]
-            b = [proxy_val[k][h] for k in names]
-            correlations[f"h{h}"] = {"graphs": names, "spearman": spearman(a, b)}
+            correlations[f"h{h}"] = {
+                "graphs": names,
+                "spearman": spearman(a, [proxy_val[k][h] for k in names]),
+                "spearman_separable": spearman(a, [proxy_sep[k][h] for k in names]),
+                "a3tgcn_best_graph": min(names, key=lambda k: ref[k]["val_rmse"]),
+                "mixed_best_graph": min(names, key=lambda k: proxy_val[k][h]),
+                "separable_best_graph": min(names, key=lambda k: proxy_sep[k][h]),
+            }
             for k in names:
                 table.append({"horizon": h, "graph": k, "a3tgcn_val_rmse": ref[k]["val_rmse"],
                               "a3tgcn_test_rmse": ref[k]["test_rmse"],
-                              "proxy_val_rmse": round(proxy_val[k][h], 3)})
+                              "proxy_mixed_val_rmse": round(proxy_val[k][h], 3),
+                              "proxy_separable_val_rmse": round(proxy_sep[k][h], 3)})
         write_csv(out / "calibration_vs_a3tgcn.csv", table)
-        mean_rho = float(np.mean([c["spearman"] for c in correlations.values()])) if correlations else float("nan")
-        results["calibration"] = {"per_horizon": correlations, "mean_spearman": mean_rho,
-                                  "pass": bool(mean_rho >= 0.7), "threshold": 0.7}
-        log(f"calibration: Spearman per horizon "
-            f"{ {k: round(v['spearman'], 2) for k, v in correlations.items()} } | mean {mean_rho:.2f} | "
-            f"{'PASS' if mean_rho >= 0.7 else 'FAIL: the proxy does not rank graphs like A3T-GCN'}")
+
+        def mean_of(key):
+            return float(np.mean([c[key] for c in correlations.values()])) if correlations else float("nan")
+
+        mean_mixed, mean_sep = mean_of("spearman"), mean_of("spearman_separable")
+        results["calibration"] = {"per_horizon": correlations, "mean_spearman": mean_mixed,
+                                  "mean_spearman_separable": mean_sep, "threshold": 0.7,
+                                  "pass": bool(mean_mixed >= 0.7), "pass_separable": bool(mean_sep >= 0.7)}
+        for h, c in correlations.items():
+            log(f"calibration {h}: Spearman mixed {c['spearman']:.2f} | separable {c['spearman_separable']:.2f} | "
+                f"best graph: A3T-GCN {c['a3tgcn_best_graph']}, mixed {c['mixed_best_graph']}, "
+                f"separable {c['separable_best_graph']}")
+        log(f"calibration mean Spearman: mixed {mean_mixed:.2f}, separable {mean_sep:.2f} (threshold 0.7)")
+        save()
+
+    # ---- stage A: how much of B0 should be kept? (A0-A7) ------------------
+    if "b0" in stages:
+        from experiments.registry import get_experiment
+
+        log(f"Stage A (A0-A7): contribution of B0 at K={k_default}; VAR coefficients and P unchanged")
+        nonzero = np.abs(b0[b0 != 0])
+
+        def without_weakest(percent):
+            """B0 without its weakest `percent` % of non-zero coefficients (by |B0|)."""
+            return b0 * (np.abs(b0) >= np.percentile(nonzero, percent))
+
+        experiments = [
+            ("A0", "B0 = 0 (VAR only)", np.zeros_like(b0)),
+            ("A1", "B0 scale 0.25", 0.25 * pem["p"] * b0),
+            ("A2", "B0 scale 0.50", 0.50 * pem["p"] * b0),
+            ("A3", "B0 scale 0.75", 0.75 * pem["p"] * b0),
+            ("A4", "B0 scale 1.00 (current E5)", pem["p"] * b0),
+            ("A5", "remove weakest 25% of B0", pem["p"] * without_weakest(25)),
+            ("A6", "remove weakest 50% of B0", pem["p"] * without_weakest(50)),
+            ("A7", "remove weakest 75% of B0", pem["p"] * without_weakest(75)),
+        ]
+
+        variant_graphs = {}
+        for ident, label, b_eff in experiments:
+            variant_graphs[ident] = e5_graphs(effect_matrices(psi, b_eff, horizons), k_default, horizons)
+
+        same_as_e5 = all(np.array_equal(variant_graphs["A4"][h], base_graphs[h]) for h in horizons)
+        log(f"  A4 equals the E5 graph built above: {same_as_e5}")
+
+        def overlap(a, b):
+            return float(np.mean([((a[h] != 0) & (b[h] != 0)).sum() / max(((a[h] != 0) | (b[h] != 0)).sum(), 1)
+                                  for h in horizons]))
+
+        rows = []
+        for (ident, label, b_eff), graphs_h in zip(experiments, variant_graphs.values()):
+            info = score_per_horizon(proxy, graphs_h, horizons, args)
+            rows.append(row_of(f"{ident}: {label}", info, horizons, experiment=ident,
+                               b0_nonzero=int((b_eff != 0).sum()),
+                               top_k_overlap_with_A4=round(overlap(graphs_h, variant_graphs["A4"]), 4),
+                               top_k_overlap_with_A0=round(overlap(graphs_h, variant_graphs["A0"]), 4)))
+            log(f"  {ident} {label:30s} own {info['own_signal_share']:.3f} "
+                + " ".join(f"h{h}:{info[h]['rmse']:.1f}/{info[h]['separable_rmse']:.1f}" for h in horizons)
+                + "   (mixed/separable)")
+
+            if ident in args.save_graphs:
+                (out / "graphs").mkdir(exist_ok=True)
+                for h in horizons:
+                    save_artifact(
+                        out / "graphs" / f"E5__h{h}__B0_{ident}.npz", graphs_h[h],
+                        experiment="E5", method=get_experiment("E5").graph_method,
+                        train_end=int(train_end), sensors=np.asarray(sensors, dtype=np.int64),
+                        horizon=h, top_k=k_default,
+                        source_run=f"B0 variant {ident}: {label}")
+                log(f"  saved {ident} graphs for horizons {horizons}")
+
+        write_csv(out / "stage_a_b0.csv", rows)
+        results["stage_a_b0"] = rows
         save()
 
     # ---- stage 2: K sweep -----------------------------------------------

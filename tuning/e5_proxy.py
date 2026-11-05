@@ -34,6 +34,19 @@ Rules that keep it valid:
 
 The proxy is a linear stand-in. tune_e5_proxy.py first checks that it ranks
 graphs whose A3T-GCN results are known in the same order (calibration).
+
+Two scores are reported for every graph (the first one was found too harsh
+on the first Kaggle run: it put every graph about 3x worse than NOGRAPH and
+picked NOGRAPH over E1 at 30 minutes, where A3T-GCN found E1 better):
+
+    mixed       the model above: only A_hat x is visible.
+    separable   y_i(t + h) ~ b + sum_k a_k x_i(t - k) + sum_k c_k n_i(t - k),
+                n = (A_hat - diag(A_hat)) x : own history plus the neighbour
+                part of the graph, shared coefficients. A graph can only add
+                information here, so it measures how informative the chosen
+                sources are, without the dilution penalty.
+
+Only conclusions on which both scores agree should be trusted.
 """
 
 from __future__ import annotations
@@ -125,10 +138,14 @@ class ProxyData:
 
         return np.ascontiguousarray(np.asarray(product).T)
 
-    def _samples(self, mixed: np.ndarray, ends: np.ndarray, horizon: int):
-        """Yield (Z, y) blocks: Z (n, L+1) with intercept last, y (n,)."""
+    def _samples(self, arrays, ends: np.ndarray, horizon: int):
+        """
+        Yield (Z, y) blocks. Z has L lag columns for every array in `arrays`
+        (each (rows, N)) and an intercept column last; y is the target.
+        """
 
         chunk = 512
+        width = len(arrays) * self.lags + 1
 
         for c in range(0, len(ends), chunk):
             tt = ends[c:c + chunk]
@@ -136,34 +153,35 @@ class ProxyData:
             target = self.x[tt + horizon]
             keep = self.observed[tt + horizon]
 
-            z = np.empty((len(tt), self.num_nodes, self.lags + 1), dtype=np.float32)
-            for k in range(self.lags):
-                z[:, :, k] = mixed[tt - k]
-            z[:, :, self.lags] = 1.0
+            z = np.empty((len(tt), self.num_nodes, width), dtype=np.float32)
+            for a, array in enumerate(arrays):
+                for k in range(self.lags):
+                    z[:, :, a * self.lags + k] = array[tt - k]
+            z[:, :, width - 1] = 1.0
 
             yield z[keep].astype(np.float64), target[keep].astype(np.float64)
 
     # -- fit and score -----------------------------------------------------
 
-    def fit(self, mixed: np.ndarray, horizon: int, stride: int = 4):
+    def fit(self, arrays, horizon: int, stride: int = 4):
         """Shared least-squares coefficients on training windows."""
 
         ends = self.window_ends("train", horizon, stride)
         if len(ends) == 0:
             raise ValueError("no usable training window.")
 
-        size = self.lags + 1
+        size = len(arrays) * self.lags + 1
         gram = np.zeros((size, size))
         moment = np.zeros(size)
 
-        for z, y in self._samples(mixed, ends, horizon):
+        for z, y in self._samples(arrays, ends, horizon):
             gram += z.T @ z
             moment += z.T @ y
 
         ridge = 1e-9 * np.trace(gram) / size
         return np.linalg.solve(gram + ridge * np.eye(size), moment)
 
-    def score(self, mixed: np.ndarray, weights: np.ndarray, horizon: int,
+    def score(self, arrays, weights: np.ndarray, horizon: int,
               split: str = "val", stride: int = 2) -> dict:
         """RMSE / MAE of the shared linear forecaster, in vehicles per 5 min."""
 
@@ -174,7 +192,7 @@ class ProxyData:
         sse = sae = 0.0
         count = 0
 
-        for z, y in self._samples(mixed, ends, horizon):
+        for z, y in self._samples(arrays, ends, horizon):
             error = z @ weights - y
             sse += float(error @ error)
             sae += float(np.abs(error).sum())
@@ -194,14 +212,26 @@ class ProxyData:
         """
 
         op = operator(graph)
+
+        # Score 1 ("mixed"): only the mixed signal A_hat x is visible (A3T-GCN-like, harsh).
         mixed = self.mix(op)
+        # Score 2 ("separable"): own history AND the neighbour part of the mixing
+        # (A_hat without its diagonal) are visible, so a graph can only add information.
+        neighbours = self.mix((op - sp.diags(op.diagonal())).tocsr())
 
         out = {"own_signal_share": own_signal_share(op),
                "edges": int((sp.csr_matrix(graph) != 0).sum())}
 
         for h in horizons:
-            weights = self.fit(mixed, h, stride_train)
-            out[int(h)] = self.score(mixed, weights, h, "val", stride_val)
+            weights = self.fit([mixed], h, stride_train)
+            result = self.score([mixed], weights, h, "val", stride_val)
+
+            weights = self.fit([self.x, neighbours], h, stride_train)
+            separable = self.score([self.x, neighbours], weights, h, "val", stride_val)
+            result["separable_rmse"] = separable["rmse"]
+            result["separable_mae"] = separable["mae"]
+
+            out[int(h)] = result
 
         return out
 

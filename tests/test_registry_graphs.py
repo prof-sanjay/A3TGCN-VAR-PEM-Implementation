@@ -52,8 +52,9 @@ def expect_error(error, function, *args, **kwargs):
 
 def test_registry():
 
-    assert sorted(EXPERIMENTS) == [f"E{i}" for i in range(8)] + ["NOGRAPH"]
-    assert {n for n, s in EXPERIMENTS.items() if s.ready} == {"E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "NOGRAPH"}
+    # E8 / E8V (VAR-PEM impulse-response graphs, no LiNGAM) were added 2026-11-05.
+    assert sorted(EXPERIMENTS) == [f"E{i}" for i in range(8)] + ["E8", "E8V", "NOGRAPH"]
+    assert {n for n, s in EXPERIMENTS.items() if s.ready} == {"E0", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E8V", "NOGRAPH"}
     assert get_experiment("E3").graph_method == "var_pem_mask"     # amended 2026-10-28
 
     expect_error(ValueError, get_experiment, "E9")

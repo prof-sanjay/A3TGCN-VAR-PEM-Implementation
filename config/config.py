@@ -118,6 +118,10 @@ FINAL_GRAPHS = {
     "E5": f"E5__h{{h}}__{LINGAM_RUN}__{PEM_RUN}.npz",
     "E6": f"E6__{LINGAM_RUN_E6}__{PEM_RUN_E6}.npz",
     "E7": f"E7__{LINGAM_RUN}__{PEM_RUN_E7}.npz",
+    # E8 / E8V (VAR-PEM impulse-response graphs, no LiNGAM): one file per horizon.
+    # E8 uses the same PEM run as E4 / E5; neither needs a LiNGAM run.
+    "E8": f"E8__h{{h}}__{VAR_RUN}__{PEM_RUN}.npz",
+    "E8V": f"E8V__h{{h}}__{VAR_RUN}.npz",
 }
 
 

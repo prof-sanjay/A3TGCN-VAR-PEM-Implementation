@@ -79,11 +79,18 @@ def test_proxy_prefers_the_true_graph():
     wrong = np.zeros((n, n)); wrong[np.arange(0, n - 1), np.arange(1, n)] = 1.0   # G[i, i+1]
     none = np.zeros((n, n))
 
-    score = {name: data.evaluate(g, [1], stride_train=1, stride_val=1)[1]["rmse"]
-             for name, g in (("true", true), ("wrong", wrong), ("none", none))}
+    info = {name: data.evaluate(g, [1], stride_train=1, stride_val=1)[1]
+            for name, g in (("true", true), ("wrong", wrong), ("none", none))}
+    score = {name: v["rmse"] for name, v in info.items()}
+    separable = {name: v["separable_rmse"] for name, v in info.items()}
 
     assert score["true"] < score["none"]
     assert score["true"] < score["wrong"]
+
+    # separable score: the true neighbour information helps, a wrong graph adds nothing
+    assert separable["true"] < separable["none"]
+    assert separable["wrong"] == pytest.approx(separable["none"], rel=0.02)
+    assert separable["true"] < separable["wrong"]
 
 
 def test_score_is_deterministic_and_uses_validation_only():

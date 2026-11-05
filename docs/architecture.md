@@ -478,3 +478,107 @@ Open question: does any graph beat NOGRAPH at 30 / 60 min? (NOGRAPH h6 / h12.)
 Reports: results/reports/NOGRAPH_seed42, results/reports/h6_E1_E5.
 compare_results.py fix: runs without a graph file (NOGRAPH) are skipped in the
 graph table instead of crashing.
+
+
+## 21. E8 / E8V: horizon-conditioned VAR-PEM without LiNGAM (2026-11-05)
+
+Status: implemented and unit-tested; graphs and forecasting runs pending (Kaggle).
+No result is claimed here: whether removing LiNGAM helps is what the runs decide.
+
+**Why.** E5 builds Theta_h = Psi_h (I - P * B0)^-1. Tuning checks on validation
+data (tune_e5_proxy.py, Kaggle, 2026-11-04) and the A3T-GCN results (E2 / E4 / E7
+worse than E1; E5 not better than E1) suggest that B0 adds error, while P changes
+almost nothing (on B0's non-zero entries P > 0.99 for 98.6%, so P * B0 removes
+0.31% of B0's weight). E8 therefore removes LiNGAM and B0 completely and keeps
+PEM.
+
+**Architecture (E8).**
+
+    traffic + road adjacency -> topology-aware VAR (lag 3, ridge 1e6) -> A_k
+    VAR residuals (standardised) -> PEM (nu0 0.0017, nu1 1, tau 0.01, eta 0.5) -> P
+    A_k -> impulse responses Psi_h (h = 1, 3, 6, 12)
+    S_h = P (x) |Psi_h|, diagonal 0
+    G_h = top-25 sources per target of S_h        (G[target, source])
+    -> existing normalisation and transposition -> existing A3T-GCN (unchanged)
+
+**Mathematics.**
+
+    Psi_0 = I,   Psi_s = sum_{k=1}^{min(s,3)} A_k Psi_{s-k}
+    S_h[i, j] = P[i, j] * |Psi_h[i, j]|  (i != j),   S_h[i, i] = 0
+    G_h[i, j] = S_h[i, j] if j is among the 25 largest of S_h[i, .], else 0
+
+Psi_h[target, source] follows A_k[target, source], so G_h has the same
+[target, source] orientation as every other graph; main.py applies the single
+transposition for all experiments. P is symmetric.
+
+**E8V (ablation).** S_h = |Psi_h|: no P and no B0. It isolates the contribution
+of PEM: E8 versus E8V differ only by P. With P = 1 everywhere E8 equals E8V
+(tested), and E8V equals the existing E5 builder with B0 = 0 and P = 1 (tested
+against causal/graph_builders.horizon_graphs, which is unchanged).
+
+**Differences from E5.**
+
+| | E5 | E8 |
+|---|---|---|
+| DirectLiNGAM, B0 | used | not used (no import, no file) |
+| effect matrix | abs(Psi_h (I - P * B0)^-1) | P * abs(Psi_h) |
+| role of P | scales B0 | weights (and masks) the VAR responses |
+| top-K rule, K = 25, orientation, A3T-GCN | same | same |
+
+E8 is a new formulation; it is not an algebraic variant of E5.
+
+**PEM's role, stated precisely.** The PEM run (E4 / E5 setting) used only VAR
+residuals, so its P does not depend on LiNGAM and is reused, not re-estimated.
+P is non-zero only for pairs that share a local unit U_i = {i} + N_in(i) +
+N_out(i) (about 3% of the matrix) and is close to 0 / 1 where non-zero. Hence
+P * |Psi_h| mostly acts as a mask: it keeps the sources inside the PEM-supported
+(about two-hop road) neighbourhood and leaves their weights nearly unchanged,
+whereas |Psi_h| (E8V) is dense and can pick sources beyond it, especially at
+long horizons. For h = 1, Psi_1 = A_1, which is non-zero only on road neighbours.
+E8 versus E8V measures what this mask does.
+
+**Configuration (frozen, identical to E1 / E5 runs).** LargeST GBA 2021, 2,056
+sensors, split rows [0, 84096) / [84096, 94608) / [94608, 105120), input 12,
+pre_len 1, horizons 1, 3, 6, 12; Adam lr 0.001, batch 8, 20 epochs, clip 5, GRU
+100, lambda 0.0015, LR halved after 5 epochs without validation gain (min 1e-5),
+seed 42, best-validation checkpoint, test evaluated once. All graph estimation
+uses training rows only.
+
+**Implementation.**
+
+| File | Purpose |
+|---|---|
+| causal/var_pem_horizon.py | Psi_h, S_h, top-K graphs, diagnostics, LiNGAM access report (new) |
+| build_e8_graphs.py | builds E8 and E8V graphs and writes diagnostics (new) |
+| notebooks/e8-graphs.ipynb | runs the build on Kaggle CPU (new) |
+| tests/test_var_pem_horizon.py | 12 tests (new) |
+| experiments/registry.py, config/config.py | E8 and E8V entries (additive) |
+| notebooks/ablation-study.ipynb | E8 / E8V graph names (additive) |
+
+Experiment names: E8 (graph_method var_pem_horizon) and E8V (var_horizon).
+Graph files: E8__h{h}__<VAR_RUN>__<PEM_RUN>.npz and E8V__h{h}__<VAR_RUN>.npz
+(compressed artifacts, same fields as E5 plus horizon and top_k); the rest of
+the build (VAR coefficients, P, Psi_h and S_h per horizon, configuration,
+diagnostics) is in outputs/e8/.
+
+**Validation checks.** (1) Psi_h equals the top-left block of the p-th power of
+the VAR companion matrix (independent calculation), Psi_1 = A_1 and
+Psi_2 = A_1 A_1 + A_2. (2) S_h is element-wise, absolute, non-negative, zero
+diagonal; P outside [0, 1] or of the wrong shape is refused. (3) Each target
+keeps at most 25 sources, all inside P's support, rows are targets, weights equal
+the 25 largest S_h entries. (4) E8V equals the E5 builder with B0 = 0, P = 1;
+E8 with P = 1 equals E8V. (5) The artifacts load through main.load_graph with the
+right method and horizon; a wrong horizon, method or training split is refused.
+(6) importing the E8 code imports no lingam module; the build writes an access
+report (no lingam module imported, no lingam / B0 file opened) and stops if it is
+not clean. The build also stops if Psi_1 differs from A_1, P is not symmetric,
+a diagonal is non-zero, an in-degree exceeds 25, an E8 edge lies outside P's
+support, or an E8 weight exceeds the E8V weight.
+
+**Run order (Kaggle).** (1) notebooks/e8-graphs.ipynb (CPU, minutes): builds the
+eight graph files and prints VAR / PEM / graph diagnostics. (2) Upload the
+graphs to the artifacts dataset. (3) ablation-study.ipynb with EXPERIMENT E8 or
+E8V and HORIZON 1, 3, 6, 12; compare with E1, E5 (and E5 seed repeats) with
+compare_results.py. Runs of one configuration can differ by several RMSE points
+(training instability; a repeat test is pending), so a conclusion needs repeated
+runs; seed 42 is the protocol seed, repeats use 7 and 123.
