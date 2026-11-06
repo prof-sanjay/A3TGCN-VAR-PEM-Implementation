@@ -77,6 +77,10 @@ def main():
     parser.add_argument("--k", type=int, default=C.E5_TOP_K)
     parser.add_argument("--e5-graphs-dir", default=None,
                         help="optional, comparison only (never used to build E8): stored E5 graphs.")
+    parser.add_argument("--variant", default=None,
+                        help="prior-study variant name (e.g. pearson_nu0.01_nu1_0.2). The PEM result may then use "
+                             "any prior and PEM setting; only E8 graphs are written, named "
+                             "E8__h{h}__<VAR_RUN>__<variant>.npz. E8V is not written (it does not depend on PEM).")
     parser.add_argument("--max-sensors", type=int, default=None, help="smoke test only.")
     args = parser.parse_args()
 
@@ -98,8 +102,9 @@ def main():
         prior = str(r["prior"]) if "prior" in r.files else "uniform"
         candidates = str(r["candidates"]) if "candidates" in r.files else "road"
         p = r["inclusion_probabilities"].astype(np.float64)
-    if prior != "uniform" or candidates != "road":
-        raise ValueError(f"E8 uses the E5 PEM run (road candidates, uniform prior); got {candidates!r}/{prior!r}.")
+    if candidates != "road" or (args.variant is None and prior != "uniform"):
+        raise ValueError(f"E8 uses the E5 PEM run (road candidates, uniform prior); got {candidates!r}/{prior!r}. "
+                         "A different PEM run needs --variant.")
 
     if args.max_sensors:                       # smoke test only
         m = args.max_sensors
@@ -159,12 +164,15 @@ def main():
     # ---- save: graph artifacts (read by main.load_graph) -------------------------
     method8, methodV = get_experiment("E8").graph_method, get_experiment("E8V").graph_method
     written = []
-    for name, graphs, method, source in (
-        ("E8", graphs8, method8, f"{C.VAR_RUN}__{C.PEM_RUN}"),
-        ("E8V", graphsV, methodV, C.VAR_RUN),
-    ):
+    targets = [("E8", graphs8, method8, f"{C.VAR_RUN}__{C.PEM_RUN}"),
+               ("E8V", graphsV, methodV, C.VAR_RUN)]
+    if args.variant:                                # prior study: E8 only, own file names, E8V untouched
+        targets = [("E8", graphs8, method8, f"{C.VAR_RUN}__{args.variant}")]
+    for name, graphs, method, source in targets:
         for h in horizons:
-            path = graph_dir / C.FINAL_GRAPHS[name].format(h=h)
+            file_name = (f"E8__h{h}__{C.VAR_RUN}__{args.variant}.npz" if args.variant
+                         else C.FINAL_GRAPHS[name].format(h=h))
+            path = graph_dir / file_name
             save_artifact(path, graphs[h], experiment=name, method=method, train_end=train_end,
                           sensors=np.asarray(sensors, dtype=np.int64), horizon=h, top_k=args.k, source_run=source)
             summary = {"experiment": name, "method": method, "horizon": h, "top_k": args.k,
@@ -197,6 +205,7 @@ def main():
         "pem": {"nu0": C.PEM_NU0, "nu1": C.PEM_NU1, "tau": C.PEM_TAU, "threshold": C.PEM_THRESHOLD,
                 "prior": prior, "prior_inclusion": C.PEM_PRIOR_INCLUSION, "standardise": C.PEM_STANDARDISE,
                 "optimizer": C.PEM_OPTIMIZER, "estimated_by": "the existing E4 / E5 PEM run (not re-estimated)"},
+        "variant": args.variant, "pem_result_prior": prior, "pem_result_file": str(args.pem_result),
         "train_end": train_end, "num_sensors": int(n), "inputs_opened": OPENED,
         "graph_files": written, "smoke_test": bool(args.max_sensors),
     }

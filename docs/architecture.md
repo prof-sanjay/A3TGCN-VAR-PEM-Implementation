@@ -582,3 +582,50 @@ E8V and HORIZON 1, 3, 6, 12; compare with E1, E5 (and E5 seed repeats) with
 compare_results.py. Runs of one configuration can differ by several RMSE points
 (training instability; a repeat test is pending), so a conclusion needs repeated
 runs; seed 42 is the protocol seed, repeats use 7 and 123.
+
+### 21.x E8 prior study (added 2026-11-05)
+
+The E8 graphs of section 21 use PEM's probabilities from the E4/E5 run (uniform prior 0.5, nu0 = 0.0017, nu1 = 1).
+At those settings P is almost exactly 0 or 1 (1.2 % of the estimated pairs lie between 0.05 and 0.95 on a 60-unit slice),
+so a prior can hardly change it: the E7 road prior moved 0.02 % of the weight. The prior study therefore compares priors
+under one fixed, looser PEM setting (nu0 = 0.01, nu1 = 0.2; 40 % of P graded on the same slice), with everything else
+unchanged (post-hoc amendment, approved by the user on 2026-11-05).
+
+| Item | Definition |
+|---|---|
+| Priors | `uniform` (eta = 0.5), `pearson`, `spearman`, `partial` correlation of the VAR **training** residuals (pairwise-complete, no filling; partial uses a shrunk correlation matrix, lambda = 0.05) |
+| Mapping to eta | percentile of abs(r) among each sensor's candidate pairs (pairs sharing a causal unit) mapped to [0.05, 0.95]; eta = max over the two directions; the same rule for every correlation |
+| Graphs | E8 with the new P: `S_h = P (x) abs(Psi_h)`, top-25, h = 1, 3, 6, 12; files `E8__h{h}__<VAR_RUN>__<prior>_nu0_0.01_nu1_0.2.npz` |
+| Reference | E8V (no PEM) is unchanged: it does not depend on P |
+| Code | `causal/corr_prior.py`, `build_corr_prior.py`, `tools/prior_gate.py`, `run_local_pem.py --prior-file`, `build_e8_graphs.py --variant`, `notebooks/e8-prior-study.ipynb`, `ablation-study.ipynb` (`GRAPH_VARIANT`) |
+
+Validity checks done before any training (training residuals, candidate pairs): split-half reliability of abs(r) 0.886
+(Pearson), 0.897 (Spearman), 0.468 (partial); Pearson and Spearman agree at 0.94 (top-25 overlap 0.83). A correlation prior
+is useful only if it changes P moderately while the data still decides most of it; the gate on the 60-unit slice is in
+`tools/prior_gate.py`. Whether a prior improves forecasting is decided only by the A3T-GCN runs (E8 variants against E8V).
+
+### 21.y E8C: coefficient-space refinement (added 2026-11-06; SUPERSEDED by 21.z the same day, kept for the record, not to be trained)
+
+A proposed, PEM-inspired method (not the original PEM). It uses no VAR residuals, no road units and no LiNGAM.
+
+- **Candidates M**: the non-zero support of the topology-aware VAR (A_k[target, source]; 51,686 edges, about 25 per target). Direction comes only from VAR.
+- **Prior**: Pearson correlation of the original training flow (pairwise-complete), by default after subtracting each sensor's time-of-day profile (raw |r| has median 0.84 on the candidates, so it hardly discriminates). eta = 0.05 + 0.90 |R|, symmetric. Association, not causation.
+- **Estimator** (`causal/var_coefficient_pem.py`): u = ||(A1,A2,A3)[i,j]||2; w_hat = argmin_{0<=w<=u} q/2 (w-u)^2 - lam log[(1-eta) f0(w) + eta f1(w)], f_q Laplace(nu_q). Separable per edge, solved by a grid plus parabolic refinement. All lags of an edge are scaled by w_hat/u. Posterior slab probability P = eta f1 / (eta f1 + (1-eta) f0); logit P = logit(eta) + log(nu0/nu1) + w_hat (1/nu0 - 1/nu1).
+- **Scale**: s = median candidate u (training only); nu0 = s, nu1 = 5s, lam = 0.5 s nu0, q = 1 (ridge standard errors are not stored; only lam/q matters). Chosen from graph statistics on the training VAR (92% of P graded), before any forecasting result; the sensitivity grid is a, b, lam in {0.5,1}, {5,20}, {0.5,1,2}.
+- **Graph**: S_h = M P |Psi_h| (Psi from the original A_k; `--psi-from W` is an ablation), diagonal 0, top-25 per target, G[target, source]. Files `E8__h{h}__<VAR_RUN>__<variant>.npz`, trained with `ablation-study.ipynb` (EXPERIMENT = "E8", GRAPH_VARIANT = variant).
+- **Variants / controls**: `detrended` (proposed), `raw` (correlation of undetrended flow), `uniform` (eta = 0.5), `shuffle` (detrended eta shuffled among candidates, seed 42), `none` (P = 1: the mask alone), `psiW`. E8V is the no-mask, no-PEM control.
+- **Code**: `build_e8c_graphs.py`, `causal/var_coefficient_pem.py`, `causal/flow_correlation.py`, `tests/test_var_coefficient_pem.py` (7 tests, incl. a synthetic true-edge test).
+- **Gate (training data only)**: versus the uniform prior the detrended prior changes 6% of edges and 18-26% of edge weight (h = 1..12); the shuffled prior changes 10% and 24-36%. P is a function of |w_hat| and eta only, so part of its variation is coefficient magnitude, which |Psi_h| also carries.
+- **Limitations**: nothing here shows better forecasting until the A3T-GCN runs; the mask drops the indirect (multi-step) pairs that E8V keeps; the VAR companion matrix has an eigenvalue of 1.05, so |Psi_h| grows with h; P is a plug-in slab probability, not the probability that an edge is real.
+
+### 21.z E8 with a traffic-correlation prior (replaces E8C, 2026-11-06)
+
+The original PEM is used (precision matrix, spike-and-slab prior), and the two sources are kept separate until the end:
+
+- **VAR** gives the coefficients A_k (direction and size, through Psi_h) and the residuals (used only to estimate each unit's variance).
+- **Prior**: Pearson correlation of the ORIGINAL detrended training flow (time-of-day mean removed; pairwise-complete), eta_jk = 0.05 + 0.90 |r_jk| for the pairs sharing a road causal unit, 0.5 elsewhere, symmetric. Association, not causation. Built by `build_corr_prior.py --source flow` (file `outputs/priors/corr_flow.npz`); control `--source flow --shuffle-seed 42` (`corr_flow_shuffle42.npz`, eta shuffled over the candidate pairs, distribution and symmetry kept).
+- **PEM**: per causal unit (road), `run_local_pem.py --prior-file`, nu0 = 0.01, nu1 = 0.2, tau = 0.01, L-BFGS-B (nu change is post-hoc: the original 0.0017 / 1 saturates P, so no prior can matter). P = max over the units containing a pair (symmetric).
+- **Combination**: S_h = P (x) |Psi_h|, diagonal 0, top-25 per target, G[target, source] (`build_e8_graphs.py --variant flow_nu0_0.01_nu1_0.2`). P weights edges only; direction and size come from VAR. No LiNGAM, no B0.
+- **Run**: `notebooks/e8-prior-study.ipynb` with PRIOR = "flow" (then "uniform" and "flow_shuffle" as controls); needs the GBA h5 for the flow correlation. Train with `ablation-study.ipynb` (EXPERIMENT = "E8", GRAPH_VARIANT = variant). Controls: uniform prior, shuffled prior, E8V.
+- **Figure**: `presentation/figures/e8_flowprior_pipeline.png`.
+- **Limitations**: P is undirected; the correlation of the detrended flow partly reflects spatial proximity; no forecasting claim before the A3T-GCN runs (at least 3 seeds for finalists); the VAR companion matrix has an eigenvalue of 1.05.

@@ -111,6 +111,9 @@ def parse_args():
                         choices=["uniform", "road"],
                         help="uniform: eta = --prior-inclusion everywhere; "
                              "road: symmetric road-graph prior.")
+    parser.add_argument("--prior-file", default=None,
+                        help="npz with a symmetric prior matrix 'eta' (e.g. from build_corr_prior.py); "
+                             "overrides --prior. Needs --tag.")
     parser.add_argument("--prior-high", type=float, default=PEM_PRIOR_HIGH)
     parser.add_argument("--prior-low", type=float, default=PEM_PRIOR_LOW)
     parser.add_argument("--standardise", default=PEM_STANDARDISE,
@@ -473,15 +476,27 @@ def main():
 
     eta = None
 
-    if args.prior == "road":
+    prior_label = args.prior
+
+    if args.prior_file:
+        if not args.tag:
+            raise ValueError("--prior-file needs --tag (the default folder name would clash with the uniform run).")
+        with np.load(args.prior_file, allow_pickle=False) as f:
+            eta = f["eta"].astype(np.float64)
+            file_sensors, file_train_end = f["sensors"], int(f["train_end"])
+        if eta.shape != (len(sensors), len(sensors)) or not np.array_equal(file_sensors, sensors) \
+                or file_train_end != var_metadata["train_end"]:
+            raise ValueError("--prior-file does not match the VAR run (sensors / training split).")
+        prior_label = "file:" + Path(args.prior_file).stem
+    elif args.prior == "road":
         eta = road_prior_eta(adjacency, args.prior_high, args.prior_low)
 
     prior_settings = {
-        "prior": args.prior,
-        "prior_high": args.prior_high if args.prior == "road" else None,
-        "prior_low": args.prior_low if args.prior == "road" else None,
-        "prior_inclusion": args.prior_inclusion if args.prior == "uniform" else None,
-        "eta_high_pairs": None if eta is None else int(
+        "prior": prior_label,
+        "prior_high": args.prior_high if args.prior == "road" and not args.prior_file else None,
+        "prior_low": args.prior_low if args.prior == "road" and not args.prior_file else None,
+        "prior_inclusion": args.prior_inclusion if prior_label == "uniform" else None,
+        "eta_high_pairs": None if eta is None or args.prior_file else int(
             np.count_nonzero(np.triu(eta == args.prior_high, 1))
         ),
     }
@@ -676,7 +691,7 @@ def main():
                 num_nodes=len(sensors),
                 var_run=args.var_run,
                 candidates=candidates,
-                prior=args.prior,
+                prior=prior_label,
                 standardise=bool(args.standardise),
             )
 
