@@ -1,0 +1,343 @@
+%Adaped by Sumesh A K (ak_sumesh@cb.amrita.edu) 2026
+%\documentclass[PhD,two side]{ugthesis}
+%\documentclass[MS]{ugthesis}
+\documentclass[MTech]{ugthesis}
+%\documentclass[BTech]{ugthesis}
+\usepackage{times}
+\usepackage{dashrule}
+\usepackage{t1enc}
+\usepackage{tikz}
+\usepackage{subfigure}
+\usepackage{pgfplots}
+\usepackage{setspace} 
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{epstopdf}
+\usepackage{lscape}
+\usepackage{fancyhdr}
+\usepackage{natbib}
+\usepackage{hyperref} % hyperlinks for references.
+\usepackage{amsmath} % easier math formulae, align, subequations \ldots
+\usepackage{amssymb}
+\usepackage{wasysym}
+\usepackage{titlesec}
+\usepackage{textcomp}
+\usepackage{pifont}
+\usepackage[toc,page]{appendix} 
+\usetikzlibrary{decorations.pathmorphing}
+\usetikzlibrary{shapes,arrows,shadows,patterns}
+\usepackage[printonlyused]{acronym}
+%\usepackage{nomencl}
+%\newcommand{\bigsize}{\fontsize{16pt}{20pt}\selectfont}
+%\renewcommand\nomname{\centerline {NOTATION}}
+%\makenomenclature
+\setcounter{MaxMatrixCols}{20}
+\captionsetup[figure]{labelfont=bf}
+\newcommand{\RomanNumeralCaps}[1]
+    {\MakeUppercase{\romannumeral #1}}
+    \appendixpageoff
+\renewcommand{\appendixpagename}{APPENDIX} % Changes the title page
+\renewcommand{\appendixtocname}{APPENDIX}  % Changes name in TOC
+\begin{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Title page
+
+\title{Title of the project } % Enter The Project Title
+\firstauthor{student1}% Enter The Student name
+\firstauthorregno{[CB.SC.P2CSE25001]}
+%\secondauthor{student2}% Enter The Student name
+%\secondauthorregno{[cb.en.u4cse17yyy]}
+%\thirdauthor{student3} % If there is no third author, leave the space blank like 
+%\thirdauthorregno{[cb.en.u4cse17zzz]}
+%\fourthauthor{student4}
+%\fourthauthorregno{[cb.en.u4cse17zyx]}
+%\fifthauthor{ }
+%\fifthauthorregno{}
+\guide{Dr. M. Xyz} % Enter your guide's name
+\designation{Designation} % Enter your guide's designation
+\guidedepartment{Computer Science and Engineering} % Enter the department name of your Guide 
+\hod{Dr. P. Bagavathi Sivakumar} % Enter HOD's name
+\department{ARTIFICIAL INTELLIGENCE / COMPUTER SCIENCE ENGINEERING} % Enter your department name
+\date{ NOVEMBER 2026} % Enter month and year of submission
+%\nocite{*}
+
+\maketitle
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Abstract
+\certificate
+%\declaration
+% Acknowledgements
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\acknowledgements
+\normalfont
+I would like to express my deep gratitude to our beloved Chancellor Satguru Sri Mata Amritanandamayi Devi for providing a bright academic climate in this university, which has made this entire task appreciable. I would like to thank the management of Amrita Vishwa Vidyapeetham and the entire fraternity of the Department of Computer Science and Engineering, Amrita School of Computing, for providing me with the necessary infrastructure required for the completion of the project. 
+I wish to record my deep sense of gratitude and profound thanks to my research supervisor <Supervisor Name>, <Supervisor Designation>, Department of Computer Science and Engineering, Amrita School of Computing, Amrita Vishwa Vidyapeetham, Coimbatore, for his / her keen interest, inspiring guidance and constant encouragement with my work during all stages, to bring this thesis into fruition. 
+I extend my sincere thanks and gratitude to all the members of the review panel, for their timely guidance and suggestions for the improvement of my thesis work.
+I would like to extend my sincere thanks to my family and friends for helping and motivating me throughout the course of this project. 
+Finally, I would like to thank all those who have helped, guided and encouraged me directly or indirectly during the project work. 
+Above all, I extend my heartfelt salutations to my beloved parents and Almighty, for their blessings and grace, for the successful completion of this thesis.
+\vskip 25pt
+\noindent
+Name:\\ 
+Roll No:\\
+Signature:\\
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\abstract
+\begin{doublespacing}
+\normalfont
+{\noindent Type your abstract here.\\
+ Abstract should be one page synopsis of the project report typed double line spacing. Just type in your abstract here.}
+\end{doublespacing}
+
+\pagebreak
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+%Not applicable for interim reviews!\\
+
+
+
+%\begin{flushright}
+%%\end{flushright}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Table of contents etc.
+
+\begin{singlespace}
+\tableofcontents
+\thispagestyle{empty}
+
+\listoftables
+\addcontentsline{toc}{chapter}{List of Tables}
+\listoffigures
+\addcontentsline{toc}{chapter}{List of Figures}
+\end{singlespace}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\abbreviations
+%\begin{acronym}[longest acronym must be entered here]
+\begin{acronym}[OKID/ERA]
+
+%\acro{acronym}{in detail}
+\acro{ABC}{Artificial Bee Colony}
+\acro{ACO}{Ant Colony Optimization}
+\acro{BA}{Bees Algorithm}
+\acro{BFO}{Bacterial Foraging Optimization}
+\acro{BM} {Bending Moment}
+\acro{CMIR}{Condensed Model Identification and Recovery}
+\acro{CMTM}{Consistent Mass Transfer Matrix}
+\acro{CPU}{Central Processing Unit}
+\acro{CS}{Cuckoo Search}
+\acro{CSI}{Complete Structural Identification}
+\acro{DAQ}{Data Acquisition}
+\acro{DOF}{Degrees Of Freedom}
+\acro{DTM}{Damped Transfer Matrix}
+\acro{EA}{Evolutionary Algorithm}
+\acro{EKF}{Extended Kalman Filter}
+\acro{ERA}{Eigen system Realization Algorithm}
+\acro{FE}{Finite Element}
+\acro{FRF}{Frequency Response Function}
+\acro{GA}{Genetic Algorithm}
+\acro{LCTM}{Lumped Crack Transfer Matrix}
+\acro{LM}{Levenberg-Marquardt}
+\acro{LMTM}{Lumped Mass Transfer Matrix}
+\acro{LS}{Least Square}
+\acro{MAE}{Mean Absolute Error}
+\acro{MSE}{Mean Square Error}
+\acro{MSI}{Modular Smart Interface}
+\acro{OKID/ERA}{Observer Kalman Filter Identification/Eigen Realization Algorithm}
+\acro{PSO}{ Particle Swarm Optimization}
+\acro{SA}{Simulated Annealing}
+\acro{SCTM}{Single Crack Transfer Matrix}
+\acro{SF} {Shear Force}
+\acro{SHM}{Structural Health Monitoring}
+\acro{SI}{Structural Identification}
+\acro{SS}{Sub-Structure}
+\acro{SSI}{Sub-Structural Identification}
+\acro{TCTM}{Two Crack Transfer Matrix}
+\acro{TM}{Transfer Matrix}
+\end{acronym}
+% Use the syntax \ac{acronym} whereever you use this acronym.
+% Abbreviations
+
+%\noindent 
+%\begin{tabbing}
+%xxxxxxxxxxx \= xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \kill
+%\textbf{TM}   \> Transfer Matrix \\
+%\textbf{LMTM} \> Lumped Mass Transfer matrix \\
+%\textbf{CMTM} \> Consistent Mass Transfer matrix \\
+%\textbf{SCTM} \> Single Crack Transfer matrix \\
+%\textbf{LCTM} \> Lumped Crack Transfer matrix \\
+%\textbf{DCTM} \> Double Crack Transfer matrix \\
+%\textbf{DOF} \> Degrees Of Freedom \\
+%\textbf{GA} \> Genetic Algorithm  \\
+%\textbf{PSO} \> Particle Swarm Optimization \\
+%\textbf{SI} \> Structural Identification \\
+%\end{tabbing}
+
+\pagebreak
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Enter the symbols used in the thesis in alphabatical order
+\chapter*{\centerline{List of Symbols}}
+\addcontentsline{toc}{chapter}{List of Symbols}
+%\nomenclature{b}{Width of the beam}
+%\nomenclature{r}{Number of DOF}
+%\nomenclature{n}{Number of elements}
+%\nomenclature{h}{Thickness of the beam}
+%\nomenclature{$\theta$}{Length of the beam}
+%\nomenclature{$\omega$}{Circular frequency}
+\begin{doublespace}
+\begin{tabbing}
+%\printnomenclature
+xxxxxxxxxxx \= xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \kill
+\textbf{$\alpha$, $\beta$}   \> Damping constants  \\
+\textbf{$\theta$}   \> Angle of twist, rad  \\
+\textbf{$\omega$}   \> Angular velocity, rad/s  \\
+\textbf{$b$}   \> Width of the beam,  m \\
+\textbf{$h$}   \> Height of the beam,  m \\
+\textbf{$\{f(t)\}$}   \> force vector  \\
+\textbf{$[K^e]$}  \> Element stiffness matrix\\
+\textbf{$[M^e]$}  \> Element mass matrix \\
+\textbf{$\{q(t)\}$}   \> Displacement vector  \\
+\textbf{$\{\dot{q}(t)\}$}   \> Velocity vector  \\
+\textbf{$\{\ddot{q}(t)\}$}   \> Acceleration vector  \\
+\end{tabbing}
+\end{doublespace}
+\pagebreak
+\clearpage
+% The main text will follow from this point so set the page numbering
+% to arabic from here on.
+\pagenumbering{arabic}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Introduction.
+
+%Enter your chapter number here
+\chapter{Introduction}
+\label{chap:intro}
+Write your introduction to your project domain and motivation. Replace the sample text with yours.
+\section{Problem Definition}
+Define your problem here
+ \ac{SI} is typically an inverse process whereby structural parameters such as stiffness, damping properties are identified from input excitation and output responses.
+ Generally, Engineering problems can be classified into forward and inverse problems \citep{783214}. In forward problems, \citep{two}the system output responses are calculated from the known system properties and input responses as shown in Figure \ref{fig:fp} whereas in inverse problems, the system parameters are identified based on the input and output responses of the system which is shown in Figure \ref{fig:ip}. 
+ \begin{figure}[htpb]
+  \centering
+    \tikzstyle{block} = [rectangle, line width=0.75pt,draw,  text width=20mm, text centered,  minimum height=10mm]
+    \tikzstyle{line} = [draw, line width=0.75pt, -latex']
+   \begin{tikzpicture}
+  \node [block,text width=30mm] (input) {\bf\footnotesize Input Excitation};
+  \node [block,right of=input,text width=35mm,node distance = 45mm] (nummode) {\bf \footnotesize Numerical model};
+   \node [block, above of=nummode,text width=35mm,node distance = 20mm] (para) {\bf \footnotesize System Parameters (Mass, Stiffness and Damping co-efficient)};
+  \node [block,right of=nummode,text width=35mm,node distance = 45mm] (output) {\bf \footnotesize Output Responses (Acceleration, Velocity and Displacement)};
+  % Draw edges
+        \path [line] (input) -- (nummode);
+        \path [line] (para) -- (nummode);
+         \path [line] (nummode) -- (output);
+ \end{tikzpicture}
+ \caption{Forward problem}
+ \label{fig:fp}
+ \end{figure}
+ \begin{figure}[htpb]
+   \centering
+     \tikzstyle{block} = [rectangle, line width=0.75pt,draw,  text width=20mm, text centered,  minimum height=10mm]
+     \tikzstyle{line} = [draw, line width=0.75pt, -latex']
+    \begin{tikzpicture}
+   \node [block,text width=30mm] (input) {\bf\footnotesize Input Excitation};
+   \node [block,right of=input,text width=35mm,node distance = 45mm] (nummode) {\bf \footnotesize Numerical model};
+    \node [block, right of=nummode,text width=35mm,node distance = 45mm] (para) {\bf \footnotesize System Parameters (Mass, Stiffness and Damping co-efficient)};
+   \node [block,above of=nummode,text width=35mm,node distance = 20mm] (output) {\bf \footnotesize Output Responses (Acceleration, Velocity and Displacement)};
+   % Draw edges
+         \path [line] (input) -- (nummode);
+         \path [line] (output) -- (nummode);
+          \path [line] (nummode) -- (para);
+  \end{tikzpicture}
+  \caption{Inverse problem}
+  \label{fig:ip}
+  \end{figure}
+  For a structure, the input excitation is a periodic force and the output responses are displacement, velocity and acceleration. The input force can be measured using force transducer and the output responses can be measured respectively using vibration pick-ups, velometer and accelerometer. Some \ac{SI} algorithms require measurement of all responses or any one of the output responses. Since the input and output responses are measurable for a structure with unknown parameters, the \ac{SI} problem is an inverse problem which identifies structural or damage parameters.\\ \vspace{-5mm}
+  \subsection{Sub sections} 
+  Sub-sections must be numbered as shown in this text. 
+  \subsubsection{Sub-sub sections}
+  Sub-sections of sub section are not to be numbered and it should be in bold as shown in this text. \\
+\textbf{Important}
+The last paragraph of this chapter shoud be a summary of the remaining part of the report.
+
+%------------------------------------------------------------------------------------------------% 
+\chapter{Literature Survey}
+
+This chapter is to explain your lit. survey
+\section{Survey}
+\citet{george} showed that the magnitude of change in natural frequencies is a function of the severity and of the location of deterioration in structures. The modal analysis has been carried out on a welded steel frame and a wire rope with damage. \citet{gredia} proposed a direct method for determining six flexural stiffnesses of a thin anisotropic plate. In this method, natural frequencies \citep{Leo} and mode shapes have been processed using \ac{LS} technique.
+\section{Findings}
+A basic variant of the \ac{PSO} \citep{kenndy} algorithm works by having a population (called a swarm) of candidate solutions (called particles). These particles are moved around in the search-space according to a few simple formulae. The movements of the particles are guided by their own best known position in the search-space as well as the entire swarm's best known position. When improved positions are being discovered these will then come to guide the movements of the swarm. The process is repeated and by doing so it is hoped, but not guaranteed, that a satisfactory solution will eventually be discovered.
+A sample table is given below:
+
+\begin{table}[htpb]
+\small
+\renewcommand{\arraystretch}{1.5}
+\caption{Sample table}
+  \label{tab1}
+\begin{tabular}{|p{2cm}|p{3cm}|p{4cm}|p{4cm}|}
+\hline
+Authors & Contextual factors & Definition & Findings\\ \hline
+Pavlou et al. (2007) & Trust & A buyer's intentions to accept vulnerability based on her beliefs that transactions with a seller will meet her... & Trust, web site\\
+& Website informativeness & The degree to which a website offers information that buyers perceive as useful,... & \\
+& Social Pressure & The extent to which a medium is perceived as truly conveying... & \\ \hline
+\end{tabular}
+\end{table}
+\section{Objectives of the work}is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.
+Sample text Sample text Sample text Sample textSample textSample textSample textSample textSample text
+%------------------------------------------------------------------------------------------------%
+\chapter{Proposed Work}
+This chapter is for explaining the design of your project.
+\section{Algorithm Design}
+Here you can provide the deatis of modules; explanation with diagram.
+\subsection{Sample subsection}
+Here we describe the requirements
+\subsection{Sample subsection}
+Here we describe the modues responsibe for various functionalities.
+\section{Datasets for the study and Platform}
+\subsection{Sample subsection}
+\subsection{Sample subsection}
+Sample text Sample textSample textSample textSample textSample textSample textSample textSample textSample textetc.
+%------------------------------------------------------------------------------------------------%
+\chapter{RESULTS AND INFERENCES}
+This chapter is devoted for describing the steps in implementation. Provide the pseudo code/algorithms/steps etc. in detail.
+%------------------------------------------------------------------------------------------------%
+\chapter{CONCLUSION AND FUTURE ENHANCEMENTS}
+In this chapter we can talk about the resuts/reports/ and intrerpretation of the output.\\
+All discussions on the correctness of the system, accuracy steps for verififcation etc. are to be included here.
+%------------------------------------------------------------------------------------------------%
+
+%------------------------------------------------------------------------------------------------%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Bibliography.
+\begin{singlespace}
+  \bibliography{thesis_refer} %Enter your .bib file name here
+\end{singlespace}
+\addcontentsline{toc}{chapter}{REFERENCES}
+\appendix
+
+\begin{appendices}
+%\addcontentsline{toc,page}{chapter}{APPENDIX}
+\chapter*{APPENDIX}
+Add your appendix here or remove this chapter
+\end{appendices}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  \end{document}
