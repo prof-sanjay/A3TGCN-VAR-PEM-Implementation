@@ -150,6 +150,8 @@ def main():
     parser.add_argument("--extra", nargs="*", default=[], help="more graphs as name=path (a {h} in path is filled in)")
     parser.add_argument("--only", nargs="*", default=None, help="evaluate only these graph names (E8V is always kept)")
     parser.add_argument("--tag", default=None, help="suffix for the output file name")
+    parser.add_argument("--save-persensor", action="store_true",
+                        help="also save per-sensor validation squared / absolute error sums (for paired statistics)")
     args = parser.parse_args()
 
     gdir, out = Path(args.graph_dir), Path(args.out)
@@ -188,12 +190,16 @@ def main():
         if args.only:                                   # E8V stays: it is the paired baseline
             graphs = {k: v for k, v in graphs.items() if k in set(args.only) | {"E8V"}}
         per_sensor = {}
+        persensor_store = {}
         for name, g in graphs.items():
             t1 = time.time()
             parts = evaluate(flow, g, h, targets)
             res, best = summarise(*parts)
             res["avg_sources"] = float((g.sum(axis=1)).mean())
             per_sensor[name] = (parts[3][:, best], parts[4])           # per-sensor validation abs error sums, counts
+            persensor_store[f"{name}__sse"] = parts[2][:, best]
+            persensor_store[f"{name}__sae"] = parts[3][:, best]
+            persensor_store[f"{name}__cnt"] = parts[4]
             results[f"h{h}/{name}"] = res
             print(f"h={h:2d} {name:13s} val RMSE {res['val_rmse']:7.3f}  MAE {res['val_mae']:7.3f}  lambda {res['lambda']:g}  "
                   f"(sources/target {res['avg_sources']:5.1f}, {time.time() - t1:.0f}s)", flush=True)
@@ -208,6 +214,9 @@ def main():
             results[f"h{h}/{name}"]["vs_E8V_mean_sensor_mae_diff"] = float(d.mean())
             results[f"h{h}/{name}"]["vs_E8V_se"] = float(d.std(ddof=1) / np.sqrt(len(d)))
             results[f"h{h}/{name}"]["vs_E8V_share_sensors_better"] = float((d < 0).mean())
+        if args.save_persensor:
+            ptag = (f"sample{args.sample}" if args.sample else "full") + (f"_{args.tag}" if args.tag else "")
+            np.savez_compressed(out / f"persensor_{ptag}_h{h}.npz", **persensor_store)
 
     tag = (f"sample{args.sample}" if args.sample else "full") + (f"_{args.tag}" if args.tag else "")
     (out / f"proxy_{tag}_h{'-'.join(map(str, args.horizons))}.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
